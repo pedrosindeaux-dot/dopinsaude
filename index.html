@@ -1,0 +1,796 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DôPin Saúde — Simplicidade que conecta sua clínica</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css" />
+  <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body>
+
+  <!-- ==================== TELA DE LOGIN (SPA) ==================== -->
+  <div id="loginScreen" class="login-wrapper">
+    <header class="login-topbar">
+      <div class="login-topbar-inner">
+        <a href="#" class="brand-link" onclick="return false;">
+          <div class="logo-badge login-logo-badge" aria-hidden="true">
+            <svg width="24" height="24" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M9 7.5L16 3.5L23 7.5" stroke="#22D3EE" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M6.5 11.5H10.5C13.2614 11.5 15.5 13.7386 15.5 16.5V19.5C15.5 22.2614 13.2614 24.5 10.5 24.5H6.5V11.5Z" stroke="#FFFFFF" stroke-width="2.4" stroke-linejoin="round"/>
+              <path d="M18.5 25V11.5H22.5C24.433 11.5 26 13.067 26 15C26 16.933 24.433 18.5 22.5 18.5H18.5" stroke="#14B8A6" stroke-width="2.7" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </div>
+          <div>
+            <div class="brand-title login-brand-title">
+              <span class="brand-do-dark">D<span class="brand-o-wrap">o<svg class="brand-circumflex" viewBox="0 0 14 8" fill="none"><path d="M1.5 6.5L7 1.5L12.5 6.5" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span></span><span class="brand-pin">Pin</span>
+              <span class="brand-saude-dark">Saúde</span>
+            </div>
+            <span class="subtitle login-subtitle">Simplicidade que conecta sua clínica</span>
+          </div>
+        </a>
+
+        <div id="loginStatusBadge" class="status-pill-light online">
+          <span class="dot"></span>
+          <span id="loginStatusTexto">Sistema Online e Sincronizado</span>
+        </div>
+      </div>
+    </header>
+
+    <main class="login-main">
+      <div class="login-card">
+        <!-- Painel Institucional Esquerdo -->
+        <div class="login-hero">
+          <div class="glow-top"></div>
+          <div class="glow-bottom"></div>
+
+          <div class="login-hero-content">
+            <span class="hero-tag">
+              <i data-lucide="shield-check"></i> Gestão Clínica Integrada
+            </span>
+            <h2>Simplicidade que conecta sua clínica.</h2>
+            <p>
+              Prontuário eletrônico, agenda inteligente, controle financeiro e repasses em um ambiente rápido, seguro e preparado para nunca parar.
+            </p>
+          </div>
+
+          <div class="login-hero-features">
+            <div class="hero-feat">
+              <span class="feat-check turquoise">✓</span>
+              <span>Acesso segmentado: Administração, Recepção e Profissionais</span>
+            </div>
+            <div class="hero-feat">
+              <span class="feat-check cyan">✓</span>
+              <span>Operação contínua com sincronização automática</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Formulário de Acesso Direito -->
+        <div class="login-form-side">
+          <div class="login-form-box">
+            <h3>Acesse sua conta</h3>
+            <p class="login-desc">Selecione seu perfil de acesso e informe suas credenciais.</p>
+
+            <div class="perfil-tabs" role="tablist">
+              <button type="button" class="perfil-btn active" data-perfil="Profissional">Profissional</button>
+              <button type="button" class="perfil-btn" data-perfil="Recepção">Recepção</button>
+              <button type="button" class="perfil-btn" data-perfil="Administração">Administração</button>
+            </div>
+
+            <form id="formLogin">
+              <input type="hidden" id="loginPerfil" value="Profissional" />
+
+              <div class="login-field">
+                <label for="loginUsuario">Usuário</label>
+                <input type="text" id="loginUsuario" placeholder="ex: dr.pedro" required />
+              </div>
+
+              <div class="login-field">
+                <div class="login-label-row">
+                  <label for="loginSenha">Senha</label>
+                </div>
+                <div class="password-wrap">
+                  <input type="password" id="loginSenha" placeholder="••••••••" required />
+                  <button type="button" id="btnToggleLoginSenha" class="btn-eye" title="Mostrar/Ocultar senha">
+                    <i data-lucide="eye"></i>
+                  </button>
+                </div>
+              </div>
+
+              <p id="loginErro" class="error-text hidden">Usuário ou senha incorretos.</p>
+
+              <label class="remember-row">
+                <input type="checkbox" id="loginManterSessao" checked />
+                <span>Manter sessão ativa neste dispositivo</span>
+              </label>
+
+              <button type="submit" class="btn btn-primary btn-login-submit">
+                <span>Entrar no Sistema</span>
+                <i data-lucide="arrow-right"></i>
+              </button>
+            </form>
+
+            <div class="login-footer">
+              &copy; 2026 <strong>DôPin Saúde</strong> &bull; Todos os direitos reservados.
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- ==================== SISTEMA PRINCIPAL (APP) ==================== -->
+  <div id="appShell" class="hidden">
+    <!-- Cabeçalho Principal -->
+    <header class="topbar no-print">
+      <div class="brand">
+        <div class="logo-badge" aria-hidden="true">
+          <svg width="26" height="26" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M9 7.5L16 3.5L23 7.5" stroke="#22D3EE" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M6.5 11.5H10.5C13.2614 11.5 15.5 13.7386 15.5 16.5V19.5C15.5 22.2614 13.2614 24.5 10.5 24.5H6.5V11.5Z" stroke="#FFFFFF" stroke-width="2.4" stroke-linejoin="round"/>
+            <path d="M18.5 25V11.5H22.5C24.433 11.5 26 13.067 26 15C26 16.933 24.433 18.5 22.5 18.5H18.5" stroke="#14B8A6" stroke-width="2.7" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <div>
+          <h1 class="brand-title">
+            <span class="brand-do">D<span class="brand-o-wrap">o<svg class="brand-circumflex" viewBox="0 0 14 8" fill="none"><path d="M1.5 6.5L7 1.5L12.5 6.5" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span></span><span class="brand-pin">Pin</span>
+            <span class="brand-saude">Saúde</span>
+            <span id="headerClinicaNome" class="clinic-badge hidden"></span>
+          </h1>
+          <span class="subtitle">Simplicidade que conecta sua clínica</span>
+        </div>
+      </div>
+
+      <div class="header-controls">
+        <div class="user-pill" title="Usuário e perfil logados">
+          <i data-lucide="user-check"></i>
+          <span id="usuarioLogadoInfo">Dr. Pedro (Profissional)</span>
+        </div>
+
+        <div class="date-picker-box">
+          <label for="dataAtiva"><i data-lucide="calendar"></i> Data:</label>
+          <input type="date" id="dataAtiva" />
+        </div>
+
+        <div id="statusConexao" class="status-badge online" title="Status da sincronização">
+          <span class="dot"></span>
+          <span id="statusTexto">Online</span>
+        </div>
+
+        <button id="btnSincronizar" class="btn btn-outline-light" title="Fila de sincronização local">
+          <i data-lucide="refresh-cw"></i> <span id="badgePendentes">0</span>
+        </button>
+
+        <button id="btnSair" class="btn btn-outline-light" title="Encerrar sessão">
+          <i data-lucide="log-out"></i> Sair
+        </button>
+      </div>
+    </header>
+
+    <!-- Navegação por Abas -->
+    <nav class="tabs-nav no-print">
+      <button class="tab-btn active" data-tab="mapa" id="navTabMapa">
+        <i data-lucide="clipboard-list"></i> Mapa Diário
+      </button>
+      <button class="tab-btn" data-tab="saidas" id="navTabSaidas">
+        <i data-lucide="arrow-up-circle"></i> Saídas
+      </button>
+      <button class="tab-btn" data-tab="caixa" id="navTabCaixa">
+        <i data-lucide="wallet"></i> Diário de Caixa
+      </button>
+      <button class="tab-btn" data-tab="pagamentos" id="navTabPagamentos">
+        <i data-lucide="users"></i> Pagamento Dentista
+      </button>
+      <button class="tab-btn" data-tab="geral" data-protected="true" id="navTabGeral">
+        <i data-lucide="lock"></i> Geral (Anual)
+      </button>
+      <button class="tab-btn" data-tab="config" data-protected="true" id="navTabConfig">
+        <i data-lucide="settings"></i> Configurações
+      </button>
+    </nav>
+
+    <main class="container">
+      <!-- ==================== ABA 1: MAPA DIÁRIO ==================== -->
+      <section id="tab-mapa" class="tab-content active">
+        <div class="card" id="cardFormMapa">
+          <div class="card-header">
+            <h2>Novo Atendimento / Venda</h2>
+            <span class="hint">Os descontos de maquineta e comissões são calculados automaticamente.</span>
+          </div>
+
+          <form id="formMapa" class="grid-form">
+            <div class="form-group">
+              <label>Paciente *</label>
+              <input type="text" id="mPaciente" placeholder="Nome completo" required />
+            </div>
+
+            <div class="form-group">
+              <label>Procedimento *</label>
+              <input type="text" id="mProcedimento" placeholder="Ex: Restauração, Coroa..." required />
+            </div>
+
+            <div class="form-group">
+              <label>Especialidade *</label>
+              <select id="mEspecialidade" required></select>
+            </div>
+
+            <div class="form-group">
+              <label>Dentista Vendedor *</label>
+              <select id="mDentistaVenda" required></select>
+            </div>
+
+            <div class="form-group">
+              <label>Valor Pago (R$) *</label>
+              <input type="number" id="mValorPago" step="0.01" min="0" placeholder="0,00" required />
+            </div>
+
+            <div class="form-group">
+              <label>Forma de Pagamento *</label>
+              <select id="mFormaPagamento" required></select>
+            </div>
+
+            <div class="form-group">
+              <label>Dentista Executor *</label>
+              <select id="mDentistaExec" required></select>
+            </div>
+
+            <div class="form-group">
+              <label>Valor Executado Bruto (R$) *</label>
+              <input type="number" id="mValorExecBruto" step="0.01" min="0" placeholder="Igual ao pago ou parcial" required />
+            </div>
+
+            <div class="form-group">
+              <label>Custo Lab. Prótese (R$)</label>
+              <input type="number" id="mValorLab" step="0.01" min="0" value="0" />
+            </div>
+
+            <!-- Pré-visualização em tempo real -->
+            <div class="preview-strip">
+              <div><span>Valor Final (Líq.):</span> <strong id="prevValorFinal">R$ 0,00</strong></div>
+              <div><span>Comissão Venda:</span> <strong id="prevComVenda">R$ 0,00</strong></div>
+              <div><span>Exec. Líquida:</span> <strong id="prevExecLiq">R$ 0,00</strong></div>
+              <div><span>Comissão Exec.:</span> <strong id="prevComExec">R$ 0,00</strong></div>
+              <div class="highlight"><span>Comissão Total:</span> <strong id="prevComTotal">R$ 0,00</strong></div>
+            </div>
+
+            <div class="form-actions">
+              <button type="submit" class="btn btn-primary">
+                <i data-lucide="plus-circle"></i> Lançar no Mapa
+              </button>
+            </div>
+          </form>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <h2>Lançamentos do Dia</h2>
+            <span class="hint hidden" id="hintMapaProfissional">Visualização somente leitura dos atendimentos lançados pela recepção.</span>
+          </div>
+          <div class="table-responsive">
+            <table id="tabelaMapa">
+              <thead>
+                <tr>
+                  <th>Paciente</th>
+                  <th>Procedimento / Esp.</th>
+                  <th>Pagamento</th>
+                  <th>Pago (Bruto)</th>
+                  <th>Valor Final</th>
+                  <th>Vend. / Com. Venda</th>
+                  <th>Exec. Líq.</th>
+                  <th>Lab.</th>
+                  <th>Exec. / Com. Exec.</th>
+                  <th id="thAcoesMapa">Ações</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ==================== ABA 2: SAÍDAS ==================== -->
+      <section id="tab-saidas" class="tab-content">
+        <div class="card">
+          <div class="card-header">
+            <h2>Registrar Saída de Caixa / Desconto Dentista</h2>
+          </div>
+
+          <form id="formSaidas" class="grid-form">
+            <div class="form-group">
+              <label>Descrição da Saída *</label>
+              <select id="sDescricao" required></select>
+            </div>
+
+            <div class="form-group hidden" id="boxOutros">
+              <label>Especifique (Outros) *</label>
+              <input type="text" id="sOutrosTexto" placeholder="Descreva a saída..." />
+            </div>
+
+            <div class="form-group hidden" id="boxDentistaDesconto">
+              <label>Dentista (Desconto na Produção) *</label>
+              <select id="sDentista"></select>
+            </div>
+
+            <div class="form-group">
+              <label>Origem do Dinheiro *</label>
+              <select id="sOrigem">
+                <option value="Gaveta">Gaveta (Dinheiro em Espécie)</option>
+                <option value="Conta/Pix">Conta Bancária / Pix</option>
+                <option value="Desconto Produção">Apenas Desconto em Folha Dentista</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label>Valor (R$) *</label>
+              <input type="number" id="sValor" step="0.01" min="0.01" placeholder="0,00" required />
+            </div>
+
+            <div class="form-group">
+              <label>Observação (Opcional)</label>
+              <input type="text" id="sObs" placeholder="Ex: Nota fiscal, vale, etc." />
+            </div>
+
+            <div class="form-actions">
+              <button type="submit" class="btn btn-primary">
+                <i data-lucide="minus-circle"></i> Registrar Saída
+              </button>
+            </div>
+          </form>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <h2>Saídas Registradas no Dia</h2>
+            <div class="summary-pill danger">Total Saídas: <strong id="saidasTotalDia">R$ 0,00</strong></div>
+          </div>
+          <div class="table-responsive">
+            <table id="tabelaSaidas">
+              <thead>
+                <tr>
+                  <th>Descrição</th>
+                  <th>Detalhe / Dentista</th>
+                  <th>Origem</th>
+                  <th>Valor</th>
+                  <th>Observação</th>
+                  <th>Ações</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ==================== ABA 3: DIÁRIO DE CAIXA ==================== -->
+      <section id="tab-caixa" class="tab-content">
+        <div class="kpi-grid">
+          <div class="kpi-card">
+            <span>Faturamento Bruto</span>
+            <strong id="cxBruto">R$ 0,00</strong>
+          </div>
+          <div class="kpi-card">
+            <span>Faturamento Líquido (Pós-Taxas)</span>
+            <strong id="cxLiquido">R$ 0,00</strong>
+          </div>
+          <div class="kpi-card highlight-green">
+            <span>Saldo em Gaveta (Dinheiro)</span>
+            <strong id="cxGaveta">R$ 0,00</strong>
+            <small>Entradas Dinheiro - Saídas Gaveta</small>
+          </div>
+          <div class="kpi-card highlight-red">
+            <span>Total de Saídas do Dia</span>
+            <strong id="cxSaidas">R$ 0,00</strong>
+          </div>
+        </div>
+
+        <div class="two-col">
+          <div class="card">
+            <div class="card-header">
+              <h2>Resumo por Modalidade (Dia)</h2>
+            </div>
+            <table class="simple-table">
+              <thead>
+                <tr>
+                  <th>Modalidade</th>
+                  <th>Bruto</th>
+                  <th>Líquido</th>
+                </tr>
+              </thead>
+              <tbody id="cxModalidadesBody"></tbody>
+            </table>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <h2>Ranking de Parcelamento no Crédito</h2>
+              <span class="hint">Acumulado geral para saber o perfil dos pacientes</span>
+            </div>
+            <table class="simple-table">
+              <thead>
+                <tr>
+                  <th>Modalidade Crédito</th>
+                  <th>Qtd. Vendas</th>
+                  <th>Volume Total</th>
+                </tr>
+              </thead>
+              <tbody id="cxRankingCreditoBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ==================== ABA 4: PAGAMENTO DENTISTA ==================== -->
+      <section id="tab-pagamentos" class="tab-content">
+        <div class="card">
+          <div class="card-header">
+            <h2 id="tituloPagamentosDentista">Fechamento & Repasse aos Dentistas (Dia)</h2>
+            <span class="hint" id="hintPagamentosDentista">Preencha o valor pago no dia. O sistema impede saldo negativo.</span>
+          </div>
+          <div class="table-responsive">
+            <table id="tabelaPagamentos">
+              <thead>
+                <tr>
+                  <th>Dentista</th>
+                  <th>Total Vendido (Líq.)</th>
+                  <th>Com. Venda</th>
+                  <th>Com. Execução</th>
+                  <th>Produção Total</th>
+                  <th>Saídas / Descontos</th>
+                  <th>Total a Receber</th>
+                  <th>Valor Pago (Adm)</th>
+                  <th>Saldo Restante</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ==================== ABA 5: GERAL (ANUAL - PROTEGIDA) ==================== -->
+      <section id="tab-geral" class="tab-content">
+        <!-- Barra Superior de Controle -->
+        <div class="card-header-bar no-print">
+          <div>
+            <h2>Painel Gerencial Anual</h2>
+            <span class="hint">Indicadores estratégicos, comparativo mensal e demonstrativos de fechamento.</span>
+          </div>
+          <div class="header-inline">
+            <label for="filtroAno"><strong>Ano:</strong></label>
+            <select id="filtroAno"></select>
+            <button id="btnBloquearGeral" class="btn btn-sm btn-outline">
+              <i data-lucide="lock"></i> Bloquear Aba
+            </button>
+          </div>
+        </div>
+
+        <!-- 1. KPIs Estratégicos Anuais -->
+        <div class="kpi-grid kpi-grid-5 no-print">
+          <div class="kpi-card">
+            <span>Receita Líquida Anual</span>
+            <strong id="kpiAnualLiquido">R$ 0,00</strong>
+            <small id="kpiAnualBrutoSub">Bruto: R$ 0,00</small>
+          </div>
+          <div class="kpi-card highlight-green">
+            <span>Lucro Líquido & Margem</span>
+            <strong id="kpiAnualLucro">R$ 0,00</strong>
+            <small id="kpiAnualMargem">Margem: 0,0%</small>
+          </div>
+          <div class="kpi-card highlight-red">
+            <span>Taxas de Cartão (Ano)</span>
+            <strong id="kpiAnualTaxas">R$ 0,00</strong>
+            <small>Retido pelas maquinetas</small>
+          </div>
+          <div class="kpi-card">
+            <span>Ticket Médio</span>
+            <strong id="kpiAnualTicket">R$ 0,00</strong>
+            <small id="kpiAnualAtendimentos">0 atendimentos no ano</small>
+          </div>
+          <div class="kpi-card">
+            <span>Custo Lab. Prótese</span>
+            <strong id="kpiAnualLab">R$ 0,00</strong>
+            <small>Apurado nos procedimentos</small>
+          </div>
+        </div>
+
+        <!-- 2. Gráfico Visual Comparativo (Receita x Despesa) -->
+        <div class="card no-print">
+          <div class="card-header">
+            <h3>Evolução Mensal: Receita Líquida x Despesas</h3>
+            <div class="chart-legend">
+              <span><i class="legend-dot rev"></i> Receita Líquida</span>
+              <span><i class="legend-dot exp"></i> Despesas</span>
+            </div>
+          </div>
+          <div id="graficoAnualBarras" class="bar-chart-wrap"></div>
+        </div>
+
+        <!-- 3. Tabela Consolidada Mês a Mês + Total e Média + Botão Demonstrativo -->
+        <div class="card no-print">
+          <div class="card-header">
+            <h3>Fluxo de Caixa Mensal</h3>
+            <span class="hint">Clique em "Demonstrativo" na linha do mês (ou gere o fechamento abaixo) para visualizar o relatório mensal.</span>
+          </div>
+
+          <div class="table-responsive">
+            <table id="tabelaGeralMeses">
+              <thead>
+                <tr>
+                  <th>Mês (Fechamento)</th>
+                  <th>Receita (Líq.)</th>
+                  <th>Despesas</th>
+                  <th>Lucro Líquido</th>
+                  <th>Dinheiro</th>
+                  <th>Pix</th>
+                  <th>Débito</th>
+                  <th>Crédito</th>
+                  <th>Demonstrativo</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+              <tfoot id="tabelaGeralMesesFoot"></tfoot>
+            </table>
+          </div>
+        </div>
+
+        <!-- 4. Desempenho Anual por Dentista -->
+        <div class="card no-print">
+          <div class="card-header">
+            <h3>Desempenho & Repasses por Dentista (Ano)</h3>
+            <span class="hint">Consolidado anual de vendas, comissões, pagamentos realizados e saldos pendentes.</span>
+          </div>
+          <div class="table-responsive">
+            <table id="tabelaGeralDentistas">
+              <thead>
+                <tr>
+                  <th>Dentista</th>
+                  <th>Total Vendido (Líq.)</th>
+                  <th>Com. Venda</th>
+                  <th>Com. Execução</th>
+                  <th>Produção Total</th>
+                  <th>Descontos</th>
+                  <th>Total Pago</th>
+                  <th>Saldo Pendente</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- 5. Despesas por Categoria e Vendas por Especialidade -->
+        <div class="two-col no-print">
+          <div class="card">
+            <div class="card-header">
+              <h3>Despesas Detalhadas por Categoria (Ano)</h3>
+            </div>
+            <table class="simple-table">
+              <thead>
+                <tr>
+                  <th>Categoria</th>
+                  <th>Total Gasto</th>
+                  <th>% das Despesas</th>
+                </tr>
+              </thead>
+              <tbody id="geralDespesasBody"></tbody>
+            </table>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <h3>Vendas por Especialidade (Ano)</h3>
+            </div>
+            <table class="simple-table">
+              <thead>
+                <tr>
+                  <th>Especialidade</th>
+                  <th>Qtd.</th>
+                  <th>Total Líquido</th>
+                </tr>
+              </thead>
+              <tbody id="geralEspecialidadesBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- 6. DEMONSTRATIVO MENSAL DE FECHAMENTO (Última data de cada mês) -->
+        <div class="card demo-mensal-card" id="cardDemonstrativoMensal">
+          <div class="card-header no-print">
+            <div>
+              <h3><i data-lucide="file-spreadsheet"></i> Demonstrativo Mensal de Fechamento</h3>
+              <span class="hint">Fechamento consolidado referente à última data de cada mês.</span>
+            </div>
+            <div class="header-inline">
+              <label for="filtroMesDemo">Mês:</label>
+              <select id="filtroMesDemo"></select>
+              <button type="button" id="btnImprimirDemo" class="btn btn-primary btn-sm">
+                <i data-lucide="printer"></i> Imprimir / Salvar PDF
+              </button>
+            </div>
+          </div>
+
+          <div id="demonstrativoMensalConteudo" class="demo-sheet"></div>
+        </div>
+      </section>
+
+      <!-- ==================== ABA 6: CONFIGURAÇÕES (PROTEGIDA) ==================== -->
+      <section id="tab-config" class="tab-content no-print">
+        <div class="card-header-bar">
+          <h2>Configurações da Clínica & Sistema</h2>
+          <button id="btnBloquearConfig" class="btn btn-sm btn-outline">
+            <i data-lucide="lock"></i> Bloquear Aba
+          </button>
+        </div>
+
+        <!-- Dados da Clínica Contratante -->
+        <div class="card clinic-profile-card">
+          <div class="card-header">
+            <h3><i data-lucide="building-2"></i> Dados da Clínica</h3>
+            <span class="hint">Informações institucionais da clínica contratante do sistema.</span>
+          </div>
+          <form id="formDadosClinica" class="grid-form">
+            <div class="form-group">
+              <label>Nome Fantasia / Nome da Clínica *</label>
+              <input type="text" id="cfgClinicaNome" placeholder="Ex: Clínica Odontológica Sorriso e Vida" required />
+            </div>
+
+            <div class="form-group">
+              <label>Razão Social</label>
+              <input type="text" id="cfgClinicaRazao" placeholder="Ex: Sorriso e Vida Serviços Odontológicos LTDA" />
+            </div>
+
+            <div class="form-group">
+              <label>CNPJ ou CPF</label>
+              <input type="text" id="cfgClinicaCnpj" placeholder="00.000.000/0001-00" />
+            </div>
+
+            <div class="form-group">
+              <label>CRO da Clínica / Resp. Técnico</label>
+              <input type="text" id="cfgClinicaCro" placeholder="Ex: CRO-CE CL-1234" />
+            </div>
+
+            <div class="form-group">
+              <label>Telefone / WhatsApp</label>
+              <input type="text" id="cfgClinicaTelefone" placeholder="(85) 99999-9999" />
+            </div>
+
+            <div class="form-group">
+              <label>E-mail Institucional</label>
+              <input type="email" id="cfgClinicaEmail" placeholder="contato@suaclinica.com.br" />
+            </div>
+
+            <div class="form-group form-span-2">
+              <label>Endereço Completo</label>
+              <input type="text" id="cfgClinicaEndereco" placeholder="Rua, número, bairro, cidade - UF, CEP" />
+            </div>
+
+            <div class="form-actions">
+              <button type="submit" class="btn btn-primary">
+                <i data-lucide="save"></i> Salvar Dados da Clínica
+              </button>
+            </div>
+          </form>
+        </div>
+
+        <div class="two-col">
+          <!-- Prestadores (Acesso: Nome, Usuário e Senha) -->
+          <div class="card">
+            <div class="card-header">
+              <h3>Dentistas Prestadores (Acesso)</h3>
+            </div>
+            <form id="formAddDentista" class="inline-form">
+              <input type="hidden" id="cfgDentistaEditId" value="" />
+              <input type="text" id="cfgDentistaNome" placeholder="Nome (ex: Dr. Pedro)" required />
+              <input type="text" id="cfgDentistaUsuario" placeholder="Usuário (ex: dr.pedro)" required />
+              <input type="text" id="cfgDentistaSenha" placeholder="Senha de acesso" required />
+              <button type="submit" id="btnSalvarDentista" class="btn btn-primary">Adicionar</button>
+              <button type="button" id="btnCancelarEditDentista" class="btn btn-outline hidden">Cancelar</button>
+            </form>
+            <ul id="listaDentistas" class="editable-list"></ul>
+          </div>
+
+          <!-- Acessos da Recepção (Nome, Usuário e Senha) -->
+          <div class="card">
+            <div class="card-header">
+              <h3>Acessos da Recepção</h3>
+            </div>
+            <form id="formAddRecepcao" class="inline-form">
+              <input type="hidden" id="cfgRecepcaoEditId" value="" />
+              <input type="text" id="cfgRecepcaoNome" placeholder="Nome (ex: Ana Recepção)" required />
+              <input type="text" id="cfgRecepcaoUsuario" placeholder="Usuário (ex: recepcao)" required />
+              <input type="text" id="cfgRecepcaoSenha" placeholder="Senha de acesso" required />
+              <button type="submit" id="btnSalvarRecepcao" class="btn btn-primary">Adicionar</button>
+              <button type="button" id="btnCancelarEditRecepcao" class="btn btn-outline hidden">Cancelar</button>
+            </form>
+            <ul id="listaRecepcao" class="editable-list"></ul>
+          </div>
+
+          <!-- Percentuais por Especialidade (Execução) -->
+          <div class="card">
+            <div class="card-header">
+              <h3>Repasse por Especialidade (%)</h3>
+            </div>
+            <form id="formAddEspecialidade" class="inline-form">
+              <input type="text" id="cfgEspNome" placeholder="Especialidade" required />
+              <input type="number" id="cfgEspPerc" step="0.1" min="0" max="100" placeholder="%" required />
+              <button type="submit" class="btn btn-primary">Adicionar</button>
+            </form>
+            <ul id="listaEspecialidades" class="editable-list"></ul>
+          </div>
+
+          <!-- Comissão Geral de Venda -->
+          <div class="card">
+            <div class="card-header">
+              <h3>Comissão de Venda (%)</h3>
+            </div>
+            <p class="hint" style="margin-bottom: 12px;">
+              Percentual fixo aplicado sobre o valor líquido (após desconto da taxa da maquineta).
+            </p>
+            <div class="inline-form" style="align-items: center;">
+              <input type="number" id="cfgComissaoVenda" step="0.1" min="0" max="100" style="max-width: 120px; text-align: right;" />
+              <span style="font-weight: 600; color: var(--petrol-800);">%</span>
+              <button type="button" id="btnSalvarComissaoVenda" class="btn btn-primary">Atualizar %</button>
+            </div>
+          </div>
+
+          <!-- Taxas da Maquineta -->
+          <div class="card">
+            <div class="card-header">
+              <h3>Taxas da Maquineta (%)</h3>
+            </div>
+            <ul id="listaTaxas" class="editable-list"></ul>
+          </div>
+
+          <!-- Categorias de Saída -->
+          <div class="card">
+            <div class="card-header">
+              <h3>Descrições de Saída do Caixa</h3>
+            </div>
+            <form id="formAddSaidaCat" class="inline-form">
+              <input type="text" id="cfgSaidaNome" placeholder="Nova categoria de saída" required />
+              <button type="submit" class="btn btn-primary">Adicionar</button>
+            </form>
+            <ul id="listaSaidasCat" class="editable-list"></ul>
+          </div>
+        </div>
+
+        <!-- Integração Futura -->
+        <div class="card">
+          <div class="card-header">
+            <h3>Integração Futura (Nuvem)</h3>
+          </div>
+          <div class="grid-form">
+            <div class="form-group">
+              <label>URL do Web App (Google Apps Script — Configurar depois)</label>
+              <input type="url" id="cfgGasUrl" placeholder="https://script.google.com/macros/s/..." />
+            </div>
+            <div class="form-actions">
+              <button id="btnSalvarSistema" class="btn btn-primary">Salvar Configurações</button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Modal de Senha -->
+  <div id="modalSenha" class="modal-backdrop hidden no-print">
+    <div class="modal-box">
+      <h3><i data-lucide="shield-alert"></i> Acesso Restrito</h3>
+      <p>Digite a senha administrativa para acessar esta área:</p>
+      <input type="password" id="inputSenhaAcesso" placeholder="Senha..." />
+      <p id="erroSenha" class="error-text hidden">Senha incorreta. Tente novamente.</p>
+      <div class="modal-actions">
+        <button id="btnCancelarSenha" class="btn btn-outline">Cancelar</button>
+        <button id="btnConfirmarSenha" class="btn btn-primary">Entrar</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>

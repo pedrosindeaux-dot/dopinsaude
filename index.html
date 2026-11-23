@@ -180,6 +180,9 @@
       <button class="tab-btn active" data-tab="mapa" id="navTabMapa">
         <i data-lucide="clipboard-list"></i> Mapa Diário
       </button>
+      <button class="tab-btn" data-tab="pacientes" id="navTabPacientes">
+        <i data-lucide="folder-heart"></i> Pacientes &amp; Exames
+      </button>
       <button class="tab-btn" data-tab="saidas" id="navTabSaidas">
         <i data-lucide="arrow-up-circle"></i> Saídas
       </button>
@@ -292,6 +295,91 @@
               </thead>
               <tbody></tbody>
             </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ==================== ABA PACIENTES & EXAMES (R2) ==================== -->
+      <section id="tab-pacientes" class="tab-content">
+        <div class="card">
+          <div class="card-header">
+            <h2><i data-lucide="user-plus"></i> Cadastrar Novo Paciente</h2>
+            <span class="hint">Os dados e arquivos ficam salvos com isolamento exclusivo da sua clínica.</span>
+          </div>
+          <form id="formPaciente" class="grid-form">
+            <div class="form-group">
+              <label>Nome Completo *</label>
+              <input type="text" id="pacNome" placeholder="Ex: Maria da Silva" required />
+            </div>
+            <div class="form-group">
+              <label>CPF (Opcional)</label>
+              <input type="text" id="pacCpf" placeholder="000.000.000-00" />
+            </div>
+            <div class="form-group">
+              <label>Telefone / WhatsApp (Opcional)</label>
+              <input type="text" id="pacTelefone" placeholder="(85) 99999-9999" />
+            </div>
+            <div class="form-actions">
+              <button type="submit" id="btnSalvarPaciente" class="btn btn-primary">
+                <i data-lucide="plus-circle"></i> Cadastrar Paciente
+              </button>
+            </div>
+          </form>
+        </div>
+
+        <div class="two-col">
+          <!-- Lista de Pacientes -->
+          <div class="card">
+            <div class="card-header">
+              <h3><i data-lucide="users"></i> Pacientes Cadastrados</h3>
+              <input type="text" id="buscaPaciente" placeholder="Buscar por nome..." style="max-width: 220px;" />
+            </div>
+            <ul id="listaPacientes" class="editable-list"></ul>
+          </div>
+
+          <!-- Documentos e Exames do Paciente (R2) -->
+          <div class="card">
+            <div class="card-header">
+              <h3 id="tituloDocsPaciente"><i data-lucide="file-text"></i> Exames &amp; Documentos (Nuvem R2)</h3>
+              <span class="hint" id="hintDocsPaciente">Selecione um paciente ao lado para gerenciar arquivos.</span>
+            </div>
+
+            <div id="areaDocsPaciente" class="hidden">
+              <form id="formUploadDocumento" class="grid-form" style="margin-bottom: 18px;">
+                <div class="form-group">
+                  <label>Categoria do Arquivo</label>
+                  <select id="docCategoria">
+                    <option value="radiografia">Radiografia / Exame</option>
+                    <option value="foto_clinica">Foto Clínica</option>
+                    <option value="prontuario">Prontuário / Termo (PDF)</option>
+                    <option value="outros">Outros</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label>Arquivo (JPG, PNG, WEBP ou PDF — máx. 10 MB) *</label>
+                  <input type="file" id="docArquivo" accept="image/jpeg,image/png,image/webp,application/pdf" required />
+                </div>
+                <div class="form-actions">
+                  <button type="submit" id="btnEnviarDocumento" class="btn btn-primary">
+                    <i data-lucide="upload-cloud"></i> Enviar Arquivo Seguro
+                  </button>
+                </div>
+              </form>
+
+              <div class="table-responsive">
+                <table id="tabelaDocumentos">
+                  <thead>
+                    <tr>
+                      <th>Arquivo</th>
+                      <th>Categoria</th>
+                      <th>Tamanho</th>
+                      <th>Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody id="listaDocumentosBody"></tbody>
+                </table>
+              </div>
+            </div>
           </div>
         </div>
       </section>

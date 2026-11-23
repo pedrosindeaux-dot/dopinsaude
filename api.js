@@ -90,5 +90,39 @@ const DopinAPI = {
 
   desativarUsuario(id) {
     return this.request(`/usuarios/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  },
+
+  // Pacientes e Documentos (Cloudflare R2)
+  listarPacientes() {
+    return this.request('/pacientes');
+  },
+
+  criarPaciente(payload) {
+    return this.request('/pacientes', { method: 'POST', body: payload });
+  },
+
+  listarDocumentos(pacienteId) {
+    return this.request(`/documentos?paciente_id=${encodeURIComponent(pacienteId)}`);
+  },
+
+  uploadDocumento(formData) {
+    return this.request('/documentos/upload', { method: 'POST', body: formData, isFormData: true });
+  },
+
+  excluirDocumento(id) {
+    return this.request(`/documentos/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  },
+
+  async baixarArquivoBlob(id) {
+    const token = this.getToken();
+    const resp = await fetch(`${API_BASE_URL}/documentos/${encodeURIComponent(id)}/arquivo`, {
+      method: 'GET',
+      headers: token ? { Authorization: `Bearer ${token}` } : {}
+    });
+    if (!resp.ok) {
+      const errJson = await resp.json().catch(() => ({}));
+      throw new Error(errJson.erro || `Erro HTTP ${resp.status}`);
+    }
+    return resp.blob();
   }
 };

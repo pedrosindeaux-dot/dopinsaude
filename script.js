@@ -23,8 +23,12 @@ let db = {
   config: structuredClone(DEFAULT_CONFIG),
   atendimentos: [],
   saidas: [],
-  pagamentosDentistas: {}
+  pagamentosDentistas: {},
+  pacientes: []
 };
+
+let pacienteSelecionadoId = null;
+let documentosPacienteAtual = [];
 
 let sessaoAtual = null;
 let abasDesbloqueadas = { geral: false, config: false };
@@ -67,7 +71,11 @@ function atualizarStatusNuvem(estado, texto) {
 async function carregarDadosDaNuvem() {
   atualizarStatusNuvem('carregando', 'Sincronizando...');
   try {
-    const res = await DopinAPI.buscarDadosIniciais();
+    const [res, resPac] = await Promise.all([
+      DopinAPI.buscarDadosIniciais(),
+      DopinAPI.listarPacientes().catch(() => ({ pacientes: [] }))
+    ]);
+    db.pacientes = resPac.pacientes || [];
     const c = res.clinica || {};
 
     db.config = {
@@ -348,6 +356,8 @@ async function iniciarSessao(dados, salvarNoStorage = false) {
   document.getElementById('usuarioLogadoInfo').textContent = `${dados.usuario} (${dados.perfil})`;
 
   const tabMapa = document.getElementById('navTabMapa');
+  const tabPacientes = document.getElementById('navTabPacientes');
+  if (tabPacientes) tabPacientes.classList.remove('hidden');
   const tabSaidas = document.getElementById('navTabSaidas');
   const tabCaixa = document.getElementById('navTabCaixa');
   const tabPagamentos = document.getElementById('navTabPagamentos');
@@ -775,6 +785,67 @@ function configurarFormularios() {
     }
   });
 
+  document.getElementById('formPaciente')?.addEventListener('submit', async (evento) => {
+    evento.preventDefault();
+    const btn = document.getElementById('btnSalvarPaciente');
+    const nome = document.getElementById('pacNome').value.trim();
+    const cpf = document.getElementById('pacCpf').value.trim();
+    const telefone = document.getElementById('pacTelefone').value.trim();
+    if (!nome) return;
+
+    btn.disabled = true;
+    btn.textContent = 'Salvando...';
+    try {
+      const res = await DopinAPI.criarPaciente({ nome, cpf, telefone });
+      evento.target.reset();
+      const lista = await DopinAPI.listarPacientes();
+      db.pacientes = lista.pacientes || [];
+      renderizarPacientes();
+      if (res.id) await selecionarPaciente(res.id);
+    } catch (err) {
+      alert(`Erro ao cadastrar paciente: ${err.message}`);
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '<i data-lucide="plus-circle"></i> Cadastrar Paciente';
+      if (typeof lucide !== 'undefined') lucide.createIcons();
+    }
+  });
+
+  document.getElementById('buscaPaciente')?.addEventListener('input', renderizarPacientes);
+
+  document.getElementById('formUploadDocumento')?.addEventListener('submit', async (evento) => {
+    evento.preventDefault();
+    if (!pacienteSelecionadoId) {
+      alert('Selecione um paciente primeiro.');
+      return;
+    }
+
+    const inputArq = document.getElementById('docArquivo');
+    const arquivo = inputArq?.files?.[0];
+    if (!arquivo) return;
+
+    const btn = document.getElementById('btnEnviarDocumento');
+    btn.disabled = true;
+    btn.textContent = 'Enviando...';
+
+    try {
+      const fd = new FormData();
+      fd.append('arquivo', arquivo);
+      fd.append('paciente_id', pacienteSelecionadoId);
+      fd.append('categoria', document.getElementById('docCategoria').value);
+
+      await DopinAPI.uploadDocumento(fd);
+      evento.target.reset();
+      await carregarDocumentosPaciente(pacienteSelecionadoId);
+    } catch (err) {
+      alert(`Erro ao enviar arquivo: ${err.message}`);
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '<i data-lucide="upload-cloud"></i> Enviar Arquivo Seguro';
+      if (typeof lucide !== 'undefined') lucide.createIcons();
+    }
+  });
+
   const btnSalvarSistema = document.getElementById('btnSalvarSistema');
   if (btnSalvarSistema) {
     btnSalvarSistema.addEventListener('click', () => {
@@ -786,6 +857,7 @@ function configurarFormularios() {
 // ==================== RENDERIZAÇÃO DAS ABAS OPERACIONAIS ====================
 function renderizarTudo() {
   renderizarMapa();
+  renderizarPacientes();
   renderizarSaidas();
   renderizarDiarioCaixa();
   renderizarPagamentosDentistas();
@@ -1471,5 +1543,129 @@ window.removerUsuarioNuvem = async function (id) {
     await carregarDadosDaNuvem();
   } catch (err) {
     alert(`Erro ao desativar usuário: ${err.message}`);
+  }
+};
+
+// ==================== PACIENTES & DOCUMENTOS (CLOUDFLARE R2) ====================
+function fmtTamanhoBytes(bytes) {
+  const b = Number(bytes || 0);
+  if (b < 1024) return `${b} B`;
+  if (b < 1024 * 1024) return `${(b / 1024).toFixed(1)} KB`;
+  return `${(b / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+function renderizarPacientes() {
+  const ul = document.getElementById('listaPacientes');
+  if (!ul) return;
+
+  const termo = (document.getElementById('buscaPaciente')?.value || '').trim().toLowerCase();
+  const filtrados = db.pacientes.filter((p) =>
+    String(p.nome || '').toLowerCase().includes(termo) ||
+    String(p.cpf || '').toLowerCase().includes(termo)
+  );
+
+  if (filtrados.length === 0) {
+    ul.innerHTML = '<li><span class="hint">Nenhum paciente encontrado.</span></li>';
+    return;
+  }
+
+  ul.innerHTML = filtrados
+    .map((p) => {
+      const ativo = p.id === pacienteSelecionadoId;
+      const detalhes = [p.cpf ? `CPF: ${escapeHTML(p.cpf)}` : '', p.telefone ? `Tel: ${escapeHTML(p.telefone)}` : '']
+        .filter(Boolean)
+        .join(' • ');
+      return `
+        <li style="${ativo ? 'border-color: var(--turquoise-500); background: var(--turquoise-50);' : ''}">
+          <div>
+            <strong>${escapeHTML(p.nome)}</strong>
+            ${detalhes ? `<br><small class="hint">${detalhes}</small>` : ''}
+          </div>
+          <div class="item-actions">
+            <button type="button" class="btn-edit-sm" onclick="selecionarPaciente('${escapeHTML(p.id)}')">
+              ${ativo ? 'Selecionado' : 'Ver Exames'}
+            </button>
+          </div>
+        </li>`;
+    })
+    .join('');
+}
+
+async function carregarDocumentosPaciente(pacienteId) {
+  const tbody = document.getElementById('listaDocumentosBody');
+  if (tbody) tbody.innerHTML = '<tr><td colspan="4">Carregando arquivos...</td></tr>';
+
+  try {
+    const res = await DopinAPI.listarDocumentos(pacienteId);
+    documentosPacienteAtual = res.documentos || [];
+    renderizarDocumentosPaciente();
+  } catch (err) {
+    if (tbody) tbody.innerHTML = `<tr><td colspan="4" class="text-danger">Erro: ${escapeHTML(err.message)}</td></tr>`;
+  }
+}
+
+window.selecionarPaciente = async function (pacienteId) {
+  pacienteSelecionadoId = pacienteId;
+  const pac = db.pacientes.find((p) => p.id === pacienteId);
+  const titulo = document.getElementById('tituloDocsPaciente');
+  const hint = document.getElementById('hintDocsPaciente');
+  const area = document.getElementById('areaDocsPaciente');
+
+  if (pac && titulo && hint && area) {
+    titulo.innerHTML = `<i data-lucide="file-text"></i> Exames &amp; Documentos — ${escapeHTML(pac.nome)}`;
+    hint.textContent = 'Arquivos privados armazenados no Cloudflare R2.';
+    area.classList.remove('hidden');
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+  }
+
+  renderizarPacientes();
+  await carregarDocumentosPaciente(pacienteId);
+};
+
+function renderizarDocumentosPaciente() {
+  const tbody = document.getElementById('listaDocumentosBody');
+  if (!tbody) return;
+
+  if (documentosPacienteAtual.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="4">Nenhum arquivo anexado para este paciente.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = documentosPacienteAtual
+    .map(
+      (doc) => `
+      <tr>
+        <td><strong>${escapeHTML(doc.nome_original)}</strong></td>
+        <td>${escapeHTML(doc.categoria || 'exame')}</td>
+        <td>${fmtTamanhoBytes(doc.tamanho_bytes)}</td>
+        <td class="item-actions">
+          <button type="button" class="btn-edit-sm" onclick="visualizarDocumento('${escapeHTML(doc.id)}')">Abrir</button>
+          <button type="button" class="btn-danger-sm" onclick="excluirDocumentoNuvem('${escapeHTML(doc.id)}')">Excluir</button>
+        </td>
+      </tr>`
+    )
+    .join('');
+}
+
+window.visualizarDocumento = async function (docId) {
+  try {
+    const blob = await DopinAPI.baixarArquivoBlob(docId);
+    const urlTemp = URL.createObjectURL(blob);
+    window.open(urlTemp, '_blank', 'noopener,noreferrer');
+    setTimeout(() => URL.revokeObjectURL(urlTemp), 60000);
+  } catch (err) {
+    alert(`Erro ao abrir arquivo: ${err.message}`);
+  }
+};
+
+window.excluirDocumentoNuvem = async function (docId) {
+  if (!confirm('Deseja excluir permanentemente este arquivo da nuvem?')) return;
+  try {
+    await DopinAPI.excluirDocumento(docId);
+    if (pacienteSelecionadoId) {
+      await carregarDocumentosPaciente(pacienteSelecionadoId);
+    }
+  } catch (err) {
+    alert(`Erro ao excluir arquivo: ${err.message}`);
   }
 };

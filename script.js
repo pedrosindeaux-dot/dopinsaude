@@ -1,14 +1,7 @@
-
-// ==================== DADOS PADRÃO E ESTADO ====================
-const STORAGE_KEY = 'dopin_saude_db_v1';
+// ==================== ESTADO EM MEMÓRIA (ALIMENTADO PELA NUVEM) ====================
 const SESSION_KEY = 'dopin_saude_session_v1';
-const DEFAULT_GAS_URL = '';
-
-const ADMIN_USUARIO = 'admin';
-const ADMIN_SENHA = 'pasteldefrango';
 
 const DEFAULT_CONFIG = {
-  gasUrl: DEFAULT_GAS_URL,
   percentualVenda: 5,
   clinica: {
     nome: '',
@@ -19,119 +12,23 @@ const DEFAULT_CONFIG = {
     email: '',
     endereco: ''
   },
-  dentistas: [
-    { id: 'd1', nome: 'Dr. Pedro', usuario: 'dr.pedro', senha: '1234' },
-    { id: 'd2', nome: 'Dra. Parceira', usuario: 'dra.parceira', senha: '1234' }
-  ],
-  recepcionistas: [
-    { id: 'r1', nome: 'Recepção Principal', usuario: 'recepcao', senha: '1234' }
-  ],
-  especialidades: [
-    { nome: 'IMPLANTE', percentual: 30 },
-    { nome: 'PROTESE', percentual: 25 },
-    { nome: 'ORTO', percentual: 30 },
-    { nome: 'ENDO', percentual: 30 },
-    { nome: 'FACETA', percentual: 30 },
-    { nome: 'CLINICO', percentual: 25 }
-  ],
-  taxas: [
-    { id: 'dinheiro', nome: 'Dinheiro', taxa: 0 },
-    { id: 'pix', nome: 'Pix', taxa: 0 },
-    { id: 'debito', nome: 'Débito', taxa: 2 },
-    { id: 'credito_3x', nome: 'Crédito até 3x', taxa: 7 },
-    { id: 'credito_6x', nome: 'Crédito até 6x', taxa: 10 },
-    { id: 'credito_12x', nome: 'Crédito até 12x', taxa: 15 }
-  ],
-  categoriasSaida: [
-    'LABORATÓRIO',
-    'PROD. LIMP/HIG.',
-    'IMPOSTOS',
-    'SALÁRIOS',
-    'MARKETING',
-    'ALUGUEL',
-    'MERCANTIL',
-    'SERV. ESSENCIAIS',
-    'FAXINA',
-    'PAG. DENTISTAS',
-    'GRAF./PAPELARIA',
-    'MANUTENÇÃO',
-    'OUTROS'
-  ]
+  dentistas: [],
+  recepcionistas: [],
+  especialidades: [],
+  taxas: [],
+  categoriasSaida: []
 };
 
-let db = carregarDB();
+let db = {
+  config: structuredClone(DEFAULT_CONFIG),
+  atendimentos: [],
+  saidas: [],
+  pagamentosDentistas: {}
+};
+
 let sessaoAtual = null;
 let abasDesbloqueadas = { geral: false, config: false };
 let abaPendenteSenha = null;
-
-function normalizarUsuarioItem(item, prefixoId, idx = 0) {
-  const nome = item.nome || `${prefixoId === 'd_' ? 'Dentista' : 'Recepção'} ${idx + 1}`;
-  const usuarioFallback = nome
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9]+/g, '.')
-    .replace(/^\.|\.$/g, '');
-  return {
-    id: item.id || prefixoId + gerarId(),
-    nome,
-    usuario: item.usuario || usuarioFallback || `user${idx + 1}`,
-    senha: item.senha ? String(item.senha) : '1234'
-  };
-}
-
-function carregarDB() {
-  const salvo = localStorage.getItem(STORAGE_KEY);
-  if (salvo) {
-    try {
-      const parsed = JSON.parse(salvo);
-
-      const dentistasSalvos = Array.isArray(parsed.config?.dentistas)
-        ? parsed.config.dentistas.map((d, i) => normalizarUsuarioItem(d, 'd_', i))
-        : structuredClone(DEFAULT_CONFIG.dentistas);
-
-      const recepSalvos = Array.isArray(parsed.config?.recepcionistas)
-        ? parsed.config.recepcionistas.map((r, i) => normalizarUsuarioItem(r, 'r_', i))
-        : structuredClone(DEFAULT_CONFIG.recepcionistas);
-
-      return {
-        config: {
-          ...DEFAULT_CONFIG,
-          ...parsed.config,
-          clinica: {
-            ...DEFAULT_CONFIG.clinica,
-            ...(parsed.config?.clinica || {})
-          },
-          dentistas: dentistasSalvos,
-          recepcionistas: recepSalvos,
-          percentualVenda:
-            parsed.config?.percentualVenda !== undefined
-              ? Number(parsed.config.percentualVenda)
-              : 5,
-          gasUrl: parsed.config?.gasUrl ?? DEFAULT_GAS_URL
-        },
-        atendimentos: parsed.atendimentos || [],
-        saidas: parsed.saidas || [],
-        pagamentosDentistas: parsed.pagamentosDentistas || {},
-        filaSync: parsed.filaSync || []
-      };
-    } catch (e) {
-      console.error('Erro ao ler storage local:', e);
-    }
-  }
-  return {
-    config: structuredClone(DEFAULT_CONFIG),
-    atendimentos: [],
-    saidas: [],
-    pagamentosDentistas: {},
-    filaSync: []
-  };
-}
-
-function salvarDB() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
-  atualizarBadgePendentes();
-}
 
 // ==================== UTILITÁRIOS & SEGURANÇA ====================
 const escapeHTML = (str) =>
@@ -153,7 +50,107 @@ const hojeISO = () => {
 
 const getDataAtiva = () => document.getElementById('dataAtiva')?.value || hojeISO();
 
-const gerarId = () => Date.now().toString(36) + Math.random().toString(36).substring(2, 7);
+function atualizarStatusNuvem(estado, texto) {
+  const badge = document.getElementById('statusConexao');
+  const txt = document.getElementById('statusTexto');
+  const loginBadge = document.getElementById('loginStatusBadge');
+  const loginTxt = document.getElementById('loginStatusTexto');
+
+  const classe = estado === 'erro' || estado === 'offline' ? 'offline' : 'online';
+  if (badge) badge.className = `status-badge ${classe}`;
+  if (txt) txt.textContent = texto;
+  if (loginBadge) loginBadge.className = `status-pill-light ${classe}`;
+  if (loginTxt) loginTxt.textContent = estado === 'offline' ? 'Sem conexão com a internet' : 'Nuvem Cloudflare Ativa';
+}
+
+// ==================== CARREGAMENTO DOS DADOS DO D1 ====================
+async function carregarDadosDaNuvem() {
+  atualizarStatusNuvem('carregando', 'Sincronizando...');
+  try {
+    const res = await DopinAPI.buscarDadosIniciais();
+    const c = res.clinica || {};
+
+    db.config = {
+      percentualVenda: Number(c.percentual_venda ?? 5),
+      clinica: {
+        nome: c.nome || '',
+        razaoSocial: c.razao_social || '',
+        cnpj: c.cnpj || '',
+        cro: c.cro || '',
+        telefone: c.telefone || '',
+        email: c.email || '',
+        endereco: c.endereco || ''
+      },
+      dentistas: (res.usuarios || []).filter((u) => u.perfil === 'Profissional'),
+      recepcionistas: (res.usuarios || []).filter((u) => u.perfil === 'Recepção'),
+      especialidades: (res.especialidades || []).map((e) => ({
+        id: e.id,
+        nome: e.nome,
+        percentual: Number(e.percentual || 0)
+      })),
+      taxas: (res.taxas || []).map((t) => ({
+        id: t.codigo,
+        dbId: t.id,
+        nome: t.nome,
+        taxa: Number(t.taxa || 0)
+      })),
+      categoriasSaida: (res.categoriasSaida || []).map((cat) => cat.nome)
+    };
+
+    db.atendimentos = (res.atendimentos || []).map((a) => ({
+      id: a.id,
+      data: a.data,
+      paciente: a.paciente_nome,
+      procedimento: a.procedimento,
+      espNome: a.especialidade_nome,
+      formaId: a.forma_pagamento_id,
+      formaNome: a.forma_pagamento_nome,
+      taxaAplicada: Number(a.taxa_aplicada || 0),
+      percVenda: Number(a.perc_venda || 0),
+      percEspecialidade: Number(a.perc_especialidade || 0),
+      valorPago: Number(a.valor_pago || 0),
+      valorFinal: Number(a.valor_final || 0),
+      dentistaVendaId: a.dentista_venda_id,
+      comissaoVenda: Number(a.comissao_venda || 0),
+      dentistaExecId: a.dentista_exec_id,
+      valorExecBruto: Number(a.valor_exec_bruto || 0),
+      valorExecLiquido: Number(a.valor_exec_liquido || 0),
+      valorLab: Number(a.valor_lab || 0),
+      comissaoExec: Number(a.comissao_exec || 0),
+      comissaoTotal: Number(a.comissao_total || 0)
+    }));
+
+    db.saidas = (res.saidas || []).map((s) => ({
+      id: s.id,
+      data: s.data,
+      categoria: s.categoria,
+      descricaoFinal: s.descricao_final,
+      dentistaId: s.dentista_id || null,
+      origem: s.origem,
+      valor: Number(s.valor || 0),
+      obs: s.obs || ''
+    }));
+
+    db.pagamentosDentistas = {};
+    (res.pagamentos || []).forEach((p) => {
+      db.pagamentosDentistas[`${p.data}_${p.dentista_id}`] = Number(p.valor_pago || 0);
+    });
+
+    atualizarCabecalhoClinica();
+    popularSelects();
+    atualizarPreviewMapa();
+    renderizarTudo();
+    atualizarStatusNuvem('online', 'Nuvem OK');
+  } catch (err) {
+    console.error('Erro ao carregar dados da nuvem:', err);
+    atualizarStatusNuvem('erro', 'Erro Nuvem');
+    if (String(err.message).includes('Sessão expirada') || String(err.message).includes('autorizada')) {
+      encerrarSessao();
+    } else {
+      alert(`Não foi possível carregar os dados da nuvem: ${err.message}`);
+    }
+  }
+}
 
 // ==================== INICIALIZAÇÃO ====================
 document.addEventListener('DOMContentLoaded', () => {
@@ -165,9 +162,8 @@ document.addEventListener('DOMContentLoaded', () => {
     inputData.addEventListener('change', renderizarTudo);
   }
 
-  atualizarCabecalhoClinica();
-  popularSelects();
   configurarLogin();
+  configurarCadastroClinica();
   configurarNavegacao();
   configurarModalSenha();
   configurarFormularios();
@@ -188,6 +184,70 @@ function atualizarCabecalhoClinica() {
   }
 }
 
+// ==================== CADASTRO DE NOVA CLÍNICA (SAAS) ====================
+function configurarCadastroClinica() {
+  const modal = document.getElementById('modalCadastroClinica');
+  const btnAbrir = document.getElementById('btnAbrirCadastroClinica');
+  const btnCancelar = document.getElementById('btnCancelarCadastroClinica');
+  const form = document.getElementById('formCadastroClinica');
+  const erroEl = document.getElementById('cadClinicaErro');
+
+  if (!modal || !btnAbrir || !form) return;
+
+  btnAbrir.addEventListener('click', () => {
+    erroEl.classList.add('hidden');
+    modal.classList.remove('hidden');
+  });
+
+  btnCancelar.addEventListener('click', () => {
+    modal.classList.add('hidden');
+  });
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    erroEl.classList.add('hidden');
+    const btn = document.getElementById('btnConfirmarCadastroClinica');
+    btn.disabled = true;
+    btn.textContent = 'Criando...';
+
+    try {
+      const nomeClinica = document.getElementById('cadClinicaNome').value.trim();
+      const email = document.getElementById('cadClinicaEmail').value.trim();
+      const nomeAdmin = document.getElementById('cadAdminNome').value.trim();
+      const usuario = document.getElementById('cadAdminUsuario').value.trim().toLowerCase();
+      const senha = document.getElementById('cadAdminSenha').value.trim();
+
+      const res = await DopinAPI.registrarClinica({
+        nome_clinica: nomeClinica,
+        email,
+        nome_admin: nomeAdmin,
+        usuario,
+        senha
+      });
+
+      DopinAPI.setToken(res.token, true);
+      modal.classList.add('hidden');
+      form.reset();
+
+      await iniciarSessao(
+        {
+          usuario: nomeAdmin,
+          loginUsuario: usuario,
+          perfil: 'Administração',
+          dentistaId: null
+        },
+        true
+      );
+    } catch (err) {
+      erroEl.textContent = err.message || 'Erro ao criar clínica.';
+      erroEl.classList.remove('hidden');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Criar Clínica';
+    }
+  });
+}
+
 // ==================== AUTENTICAÇÃO & PERFIS ====================
 function configurarLogin() {
   const botoesPerfil = document.querySelectorAll('.perfil-btn');
@@ -196,14 +256,9 @@ function configurarLogin() {
 
   const atualizarPerfilLogin = (perfil) => {
     inputPerfil.value = perfil;
-
-    if (perfil === 'Profissional') {
-      inputUsuario.placeholder = 'ex: dr.pedro';
-    } else if (perfil === 'Recepção') {
-      inputUsuario.placeholder = 'ex: recepcao';
-    } else {
-      inputUsuario.placeholder = 'Usuário administrativo';
-    }
+    if (perfil === 'Profissional') inputUsuario.placeholder = 'ex: dr.pedro';
+    else if (perfil === 'Recepção') inputUsuario.placeholder = 'ex: recepcao';
+    else inputUsuario.placeholder = 'Usuário administrativo';
     document.getElementById('loginErro').classList.add('hidden');
   };
 
@@ -222,9 +277,8 @@ function configurarLogin() {
     inp.type = inp.type === 'password' ? 'text' : 'password';
   });
 
-  document.getElementById('formLogin').addEventListener('submit', (e) => {
+  document.getElementById('formLogin').addEventListener('submit', async (e) => {
     e.preventDefault();
-    const perfil = document.getElementById('loginPerfil').value;
     const usuarioDigitado = document.getElementById('loginUsuario').value.trim();
     const senhaDigitada = document.getElementById('loginSenha').value.trim();
     const manter = document.getElementById('loginManterSessao').checked;
@@ -236,93 +290,59 @@ function configurarLogin() {
       return;
     }
 
-    if (perfil === 'Profissional') {
-      const dentObj = db.config.dentistas.find(
-        (d) =>
-          String(d.usuario || '').trim().toLowerCase() === usuarioDigitado.toLowerCase() &&
-          String(d.senha || '').trim() === senhaDigitada
+    erroEl.classList.add('hidden');
+    const btnSubmit = e.target.querySelector('button[type="submit"]');
+    btnSubmit.disabled = true;
+
+    try {
+      const res = await DopinAPI.login(usuarioDigitado, senhaDigitada);
+      DopinAPI.setToken(res.token, manter);
+
+      const u = res.usuario;
+      await iniciarSessao(
+        {
+          usuario: u.nome,
+          loginUsuario: u.usuario,
+          perfil: u.perfil,
+          dentistaId: u.perfil === 'Profissional' ? u.id : null,
+          recepcaoId: u.perfil === 'Recepção' ? u.id : null
+        },
+        manter
       );
-
-      if (!dentObj) {
-        erroEl.textContent = 'Usuário ou senha não autorizados para o perfil Profissional.';
-        erroEl.classList.remove('hidden');
-        return;
-      }
-
-      erroEl.classList.add('hidden');
-      iniciarSessao({ usuario: dentObj.nome, perfil: 'Profissional', dentistaId: dentObj.id }, manter);
-      return;
-    }
-
-    if (perfil === 'Recepção') {
-      const recepObj = db.config.recepcionistas.find(
-        (r) =>
-          String(r.usuario || '').trim().toLowerCase() === usuarioDigitado.toLowerCase() &&
-          String(r.senha || '').trim() === senhaDigitada
-      );
-
-      if (!recepObj) {
-        erroEl.textContent = 'Usuário ou senha não autorizados para o perfil Recepção.';
-        erroEl.classList.remove('hidden');
-        return;
-      }
-
-      erroEl.classList.add('hidden');
-      iniciarSessao({ usuario: recepObj.nome, perfil: 'Recepção', recepcaoId: recepObj.id }, manter);
-      return;
-    }
-
-    if (perfil === 'Administração') {
-      if (usuarioDigitado.toLowerCase() !== ADMIN_USUARIO || senhaDigitada !== ADMIN_SENHA) {
-        erroEl.textContent = 'Usuário ou senha administrativos incorretos.';
-        erroEl.classList.remove('hidden');
-        return;
-      }
-
-      erroEl.classList.add('hidden');
-      iniciarSessao({ usuario: 'Administrador', perfil: 'Administração', dentistaId: null }, manter);
+    } catch (err) {
+      erroEl.textContent = err.message || 'Usuário ou senha incorretos.';
+      erroEl.classList.remove('hidden');
+    } finally {
+      btnSubmit.disabled = false;
     }
   });
 
   document.getElementById('btnSair').addEventListener('click', encerrarSessao);
 }
 
-function verificarSessaoSalva() {
-  const salvo = localStorage.getItem(SESSION_KEY);
-  if (salvo) {
+async function verificarSessaoSalva() {
+  const token = DopinAPI.getToken();
+  const salvo = localStorage.getItem(SESSION_KEY) || sessionStorage.getItem(SESSION_KEY);
+  if (token && salvo) {
     try {
       const dados = JSON.parse(salvo);
       if (dados && dados.usuario && dados.perfil) {
-        if (dados.perfil === 'Profissional') {
-          const existeDent = db.config.dentistas.some((d) => d.id === dados.dentistaId);
-          if (!existeDent) {
-            localStorage.removeItem(SESSION_KEY);
-            mostrarTelaLogin();
-            return;
-          }
-        }
-        if (dados.perfil === 'Recepção') {
-          const existeRecep = db.config.recepcionistas.some((r) => r.id === dados.recepcaoId);
-          if (!existeRecep) {
-            localStorage.removeItem(SESSION_KEY);
-            mostrarTelaLogin();
-            return;
-          }
-        }
-        iniciarSessao(dados, false);
+        await iniciarSessao(dados, false);
         return;
       }
-    } catch (e) {
-      localStorage.removeItem(SESSION_KEY);
+    } catch {
+      // ignora sessão inválida
     }
   }
   mostrarTelaLogin();
 }
 
-function iniciarSessao(dados, salvarNoStorage = false) {
+async function iniciarSessao(dados, salvarNoStorage = false) {
   sessaoAtual = dados;
   if (salvarNoStorage) {
     localStorage.setItem(SESSION_KEY, JSON.stringify(dados));
+  } else if (!localStorage.getItem(SESSION_KEY)) {
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify(dados));
   }
 
   document.getElementById('usuarioLogadoInfo').textContent = `${dados.usuario} (${dados.perfil})`;
@@ -379,13 +399,16 @@ function iniciarSessao(dados, salvarNoStorage = false) {
 
   document.getElementById('loginScreen').classList.add('hidden');
   document.getElementById('appShell').classList.remove('hidden');
+  await carregarDadosDaNuvem();
   ativarAba('mapa');
 }
 
 function encerrarSessao() {
   sessaoAtual = null;
   abasDesbloqueadas = { geral: false, config: false };
+  DopinAPI.limparToken();
   localStorage.removeItem(SESSION_KEY);
+  sessionStorage.removeItem(SESSION_KEY);
   document.getElementById('loginSenha').value = '';
   mostrarTelaLogin();
 }
@@ -395,140 +418,25 @@ function mostrarTelaLogin() {
   document.getElementById('loginScreen').classList.remove('hidden');
 }
 
-// ==================== CONEXÃO & FILA LOCAL ====================
+// ==================== CONEXÃO & BOTÃO ATUALIZAR ====================
 function configurarConexao() {
-  const atualizarStatus = async () => {
-    const badge = document.getElementById('statusConexao');
-    const txt = document.getElementById('statusTexto');
-    const loginBadge = document.getElementById('loginStatusBadge');
-    const loginTxt = document.getElementById('loginStatusTexto');
-
+  const atualizarRede = () => {
     if (navigator.onLine) {
-      badge.className = 'status-badge online';
-      txt.textContent = 'Online';
-      loginBadge.className = 'status-pill-light online';
-      loginTxt.textContent = 'Sistema Online e Sincronizado';
-      if (db.config.gasUrl) {
-        await sincronizarFila();
-        await buscarDadosDaNuvem();
-      }
+      atualizarStatusNuvem('online', 'Nuvem OK');
     } else {
-      badge.className = 'status-badge offline';
-      txt.textContent = 'Offline (Local)';
-      loginBadge.className = 'status-pill-light offline';
-      loginTxt.textContent = 'Modo Offline Ativo (Local)';
+      atualizarStatusNuvem('offline', 'Offline');
     }
   };
 
-  window.addEventListener('online', atualizarStatus);
-  window.addEventListener('offline', atualizarStatus);
+  window.addEventListener('online', atualizarRede);
+  window.addEventListener('offline', atualizarRede);
+
   document.getElementById('btnSincronizar').addEventListener('click', async () => {
-    if (!db.config.gasUrl) {
-      alert('Armazenamento em nuvem ainda não configurado. Os dados estão salvos localmente no navegador.');
-      return;
-    }
-    await sincronizarFila(true);
-    await buscarDadosDaNuvem();
+    if (!sessaoAtual) return;
+    await carregarDadosDaNuvem();
   });
-  atualizarStatus();
-}
 
-function enfileirarSync(acao, payload) {
-  if (!db.config.gasUrl) return;
-  db.filaSync.push({
-    id: gerarId(),
-    timestamp: new Date().toISOString(),
-    acao,
-    payload
-  });
-  salvarDB();
-  if (navigator.onLine) sincronizarFila();
-}
-
-function atualizarBadgePendentes() {
-  const badge = document.getElementById('badgePendentes');
-  if (badge) badge.textContent = db.filaSync.length;
-}
-
-async function sincronizarFila(manual = false) {
-  atualizarBadgePendentes();
-  if (!navigator.onLine) {
-    if (manual) alert('Sem conexão com a internet. Os dados estão salvos localmente.');
-    return;
-  }
-  if (!db.config.gasUrl || db.filaSync.length === 0) return;
-
-  const txt = document.getElementById('statusTexto');
-  txt.textContent = 'Enviando...';
-
-  try {
-    const lote = [...db.filaSync];
-    const resp = await fetch(db.config.gasUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ tipo: 'SYNC_LOTE', itens: lote })
-    });
-
-    if (!resp.ok) throw new Error('Falha HTTP ' + resp.status);
-
-    const idsEnviados = new Set(lote.map((i) => i.id));
-    db.filaSync = db.filaSync.filter((i) => !idsEnviados.has(i.id));
-    salvarDB();
-    txt.textContent = 'Online';
-    if (manual) alert('Dados sincronizados com sucesso!');
-  } catch (err) {
-    console.error('Erro na sincronização:', err);
-    txt.textContent = 'Erro Sync';
-  }
-}
-
-async function buscarDadosDaNuvem() {
-  if (!navigator.onLine || !db.config.gasUrl || db.filaSync.length > 0) return;
-
-  const txt = document.getElementById('statusTexto');
-  txt.textContent = 'Atualizando...';
-
-  try {
-    const resp = await fetch(db.config.gasUrl);
-    const json = await resp.json();
-
-    if (json.status === 'ok') {
-      db.atendimentos = json.atendimentos || [];
-      db.saidas = json.saidas || [];
-      db.pagamentosDentistas = json.pagamentosDentistas || {};
-      if (json.config) {
-        const dentistasNuvem = Array.isArray(json.config.dentistas)
-          ? json.config.dentistas.map((d, i) => normalizarUsuarioItem(d, 'd_', i))
-          : db.config.dentistas;
-        const recepNuvem = Array.isArray(json.config.recepcionistas)
-          ? json.config.recepcionistas.map((r, i) => normalizarUsuarioItem(r, 'r_', i))
-          : db.config.recepcionistas;
-        db.config = {
-          ...db.config,
-          ...json.config,
-          clinica: {
-            ...db.config.clinica,
-            ...(json.config.clinica || {})
-          },
-          dentistas: dentistasNuvem,
-          recepcionistas: recepNuvem,
-          percentualVenda:
-            json.config.percentualVenda !== undefined
-              ? Number(json.config.percentualVenda)
-              : db.config.percentualVenda,
-          gasUrl: db.config.gasUrl
-        };
-      }
-      salvarDB();
-      atualizarCabecalhoClinica();
-      popularSelects();
-      renderizarTudo();
-    }
-    txt.textContent = 'Online';
-  } catch (err) {
-    console.error('Erro ao baixar dados da nuvem:', err);
-    txt.textContent = 'Online (Local)';
-  }
+  atualizarRede();
 }
 
 // ==================== NAVEGAÇÃO & PROTEÇÃO POR SENHA ====================
@@ -569,16 +477,21 @@ function configurarModalSenha() {
   const input = document.getElementById('inputSenhaAcesso');
   const erro = document.getElementById('erroSenha');
 
-  const validar = () => {
+  const validar = async () => {
     const senhaDigitada = input.value.trim();
+    if (!sessaoAtual?.loginUsuario || !senhaDigitada) {
+      erro.classList.remove('hidden');
+      return;
+    }
 
-    if (senhaDigitada === ADMIN_SENHA) {
+    try {
+      await DopinAPI.login(sessaoAtual.loginUsuario, senhaDigitada);
       abasDesbloqueadas[abaPendenteSenha] = true;
       modal.classList.add('hidden');
       erro.classList.add('hidden');
       input.value = '';
       ativarAba(abaPendenteSenha);
-    } else {
+    } catch {
       erro.classList.remove('hidden');
     }
   };
@@ -600,14 +513,18 @@ function abrirModalSenha() {
 
 // ==================== LISTAS SUSPENSAS E CÁLCULOS ====================
 function popularSelects() {
-  const dentistasHTML = db.config.dentistas
-    .map((dent) => `<option value="${escapeHTML(dent.id)}">${escapeHTML(dent.nome)}</option>`)
-    .join('');
+  const dentistasHTML = db.config.dentistas.length
+    ? db.config.dentistas
+        .map((dent) => `<option value="${escapeHTML(dent.id)}">${escapeHTML(dent.nome)}</option>`)
+        .join('')
+    : '<option value="">Cadastre um dentista em Configurações</option>';
 
   document.getElementById('mDentistaVenda').innerHTML = dentistasHTML;
   document.getElementById('mDentistaExec').innerHTML = dentistasHTML;
   document.getElementById('sDentista').innerHTML =
-    `<option value="">-- Nenhum (Despesa Geral) --</option>${dentistasHTML}`;
+    `<option value="">-- Nenhum (Despesa Geral) --</option>${db.config.dentistas
+      .map((dent) => `<option value="${escapeHTML(dent.id)}">${escapeHTML(dent.nome)}</option>`)
+      .join('')}`;
 
   document.getElementById('mEspecialidade').innerHTML = db.config.especialidades
     .map((esp) => `<option value="${escapeHTML(esp.nome)}">${escapeHTML(esp.nome)}</option>`)
@@ -679,38 +596,6 @@ function atualizarPreviewMapa() {
   document.getElementById('prevComTotal').textContent = fmtBRL(resumo.comissaoTotal);
 }
 
-function resetarFormDentista() {
-  document.getElementById('cfgDentistaEditId').value = '';
-  document.getElementById('cfgDentistaNome').value = '';
-  document.getElementById('cfgDentistaUsuario').value = '';
-  document.getElementById('cfgDentistaSenha').value = '';
-  document.getElementById('btnSalvarDentista').textContent = 'Adicionar';
-  document.getElementById('btnCancelarEditDentista').classList.add('hidden');
-}
-
-function resetarFormRecepcao() {
-  document.getElementById('cfgRecepcaoEditId').value = '';
-  document.getElementById('cfgRecepcaoNome').value = '';
-  document.getElementById('cfgRecepcaoUsuario').value = '';
-  document.getElementById('cfgRecepcaoSenha').value = '';
-  document.getElementById('btnSalvarRecepcao').textContent = 'Adicionar';
-  document.getElementById('btnCancelarEditRecepcao').classList.add('hidden');
-}
-
-function usuarioJaExisteEmAlgumPerfil(loginDigitado, idIgnorado = '') {
-  const normalizado = loginDigitado.trim().toLowerCase();
-  if (normalizado === ADMIN_USUARIO) return true;
-
-  const conflitoDentista = db.config.dentistas.some(
-    (d) => d.id !== idIgnorado && String(d.usuario || '').trim().toLowerCase() === normalizado
-  );
-  const conflitoRecepcao = db.config.recepcionistas.some(
-    (r) => r.id !== idIgnorado && String(r.usuario || '').trim().toLowerCase() === normalizado
-  );
-
-  return conflitoDentista || conflitoRecepcao;
-}
-
 // ==================== EVENTOS DOS FORMULÁRIOS ====================
 function configurarFormularios() {
   const campoPago = document.getElementById('mValorPago');
@@ -734,30 +619,38 @@ function configurarFormularios() {
     el.addEventListener('input', atualizarPreviewMapa);
   });
 
-  document.getElementById('formMapa').addEventListener('submit', (evento) => {
+  document.getElementById('formMapa').addEventListener('submit', async (evento) => {
     evento.preventDefault();
     if (sessaoAtual && sessaoAtual.perfil === 'Profissional') return;
 
+    const dentVenda = document.getElementById('mDentistaVenda').value;
+    const dentExec = document.getElementById('mDentistaExec').value;
+    if (!dentVenda || !dentExec) {
+      alert('Cadastre pelo menos um dentista na aba Configurações antes de lançar atendimentos.');
+      return;
+    }
+
     const valores = calcularValoresMapa();
     const registroAtendimento = {
-      id: gerarId(),
       data: getDataAtiva(),
       paciente: document.getElementById('mPaciente').value.trim(),
       procedimento: document.getElementById('mProcedimento').value.trim(),
-      dentistaVendaId: document.getElementById('mDentistaVenda').value,
-      dentistaExecId: document.getElementById('mDentistaExec').value,
+      dentistaVendaId: dentVenda,
+      dentistaExecId: dentExec,
       ...valores
     };
 
-    db.atendimentos.push(registroAtendimento);
-    salvarDB();
-    enfileirarSync('ADD_ATENDIMENTO', registroAtendimento);
-
-    evento.target.reset();
-    document.getElementById('mValorLab').value = '0';
-    delete campoExec.dataset.editadoManualmente;
-    atualizarPreviewMapa();
-    renderizarTudo();
+    try {
+      const res = await DopinAPI.criarAtendimento(registroAtendimento);
+      db.atendimentos.unshift({ id: res.id, ...registroAtendimento });
+      evento.target.reset();
+      document.getElementById('mValorLab').value = '0';
+      delete campoExec.dataset.editadoManualmente;
+      atualizarPreviewMapa();
+      renderizarTudo();
+    } catch (err) {
+      alert(`Erro ao salvar atendimento na nuvem: ${err.message}`);
+    }
   });
 
   const selectSaida = document.getElementById('sDescricao');
@@ -778,14 +671,13 @@ function configurarFormularios() {
 
   selectSaida.addEventListener('change', atualizarCamposSaida);
 
-  document.getElementById('formSaidas').addEventListener('submit', (evento) => {
+  document.getElementById('formSaidas').addEventListener('submit', async (evento) => {
     evento.preventDefault();
     const categoria = selectSaida.value;
     const textoOutros = inputOutrosTexto.value.trim();
     const dentistaId = selectDentistaSaida.value;
 
     const registroSaida = {
-      id: gerarId(),
       data: getDataAtiva(),
       categoria,
       descricaoFinal: categoria === 'OUTROS' && textoOutros ? `OUTROS: ${textoOutros}` : categoria,
@@ -795,18 +687,20 @@ function configurarFormularios() {
       obs: document.getElementById('sObs').value.trim()
     };
 
-    db.saidas.push(registroSaida);
-    salvarDB();
-    enfileirarSync('ADD_SAIDA', registroSaida);
-
-    evento.target.reset();
-    atualizarCamposSaida();
-    renderizarTudo();
+    try {
+      const res = await DopinAPI.criarSaida(registroSaida);
+      db.saidas.unshift({ id: res.id, ...registroSaida });
+      evento.target.reset();
+      atualizarCamposSaida();
+      renderizarTudo();
+    } catch (err) {
+      alert(`Erro ao salvar saída na nuvem: ${err.message}`);
+    }
   });
 
-  document.getElementById('formDadosClinica').addEventListener('submit', (evento) => {
+  document.getElementById('formDadosClinica').addEventListener('submit', async (evento) => {
     evento.preventDefault();
-    db.config.clinica = {
+    const dadosClinica = {
       nome: document.getElementById('cfgClinicaNome').value.trim(),
       razaoSocial: document.getElementById('cfgClinicaRazao').value.trim(),
       cnpj: document.getElementById('cfgClinicaCnpj').value.trim(),
@@ -815,110 +709,78 @@ function configurarFormularios() {
       email: document.getElementById('cfgClinicaEmail').value.trim(),
       endereco: document.getElementById('cfgClinicaEndereco').value.trim()
     };
-    salvarDB();
-    atualizarCabecalhoClinica();
-    enfileirarSync('UPDATE_CONFIG', db.config);
-    alert('Dados da clínica salvos com sucesso!');
+
+    try {
+      await DopinAPI.salvarClinica(dadosClinica);
+      db.config.clinica = dadosClinica;
+      atualizarCabecalhoClinica();
+      alert('Dados da clínica salvos na nuvem com sucesso!');
+    } catch (err) {
+      alert(`Erro ao salvar dados da clínica: ${err.message}`);
+    }
   });
 
-  document.getElementById('formAddDentista').addEventListener('submit', (evento) => {
+  document.getElementById('formAddDentista').addEventListener('submit', async (evento) => {
     evento.preventDefault();
-    const editId = document.getElementById('cfgDentistaEditId').value;
     const nome = document.getElementById('cfgDentistaNome').value.trim();
-    const usuario = document.getElementById('cfgDentistaUsuario').value.trim();
+    const usuario = document.getElementById('cfgDentistaUsuario').value.trim().toLowerCase();
     const senha = document.getElementById('cfgDentistaSenha').value.trim();
 
     if (!nome || !usuario || !senha) return;
-    if (usuarioJaExisteEmAlgumPerfil(usuario, editId)) {
-      alert('Este nome de usuário já está em uso em outro cadastro.');
-      return;
+    try {
+      await DopinAPI.criarUsuario({ nome, usuario, senha, perfil: 'Profissional' });
+      evento.target.reset();
+      await carregarDadosDaNuvem();
+    } catch (err) {
+      alert(`Erro ao adicionar dentista: ${err.message}`);
     }
-
-    if (editId) {
-      const posicao = db.config.dentistas.findIndex((item) => item.id === editId);
-      if (posicao !== -1) db.config.dentistas[posicao] = { id: editId, nome, usuario, senha };
-    } else {
-      db.config.dentistas.push({ id: 'd_' + gerarId(), nome, usuario, senha });
-    }
-
-    salvarDB();
-    enfileirarSync('UPDATE_CONFIG', db.config);
-    resetarFormDentista();
-    popularSelects();
-    renderizarConfig();
   });
 
-  document.getElementById('btnCancelarEditDentista').addEventListener('click', resetarFormDentista);
-
-  document.getElementById('formAddRecepcao').addEventListener('submit', (evento) => {
+  document.getElementById('formAddRecepcao').addEventListener('submit', async (evento) => {
     evento.preventDefault();
-    const editId = document.getElementById('cfgRecepcaoEditId').value;
     const nome = document.getElementById('cfgRecepcaoNome').value.trim();
-    const usuario = document.getElementById('cfgRecepcaoUsuario').value.trim();
+    const usuario = document.getElementById('cfgRecepcaoUsuario').value.trim().toLowerCase();
     const senha = document.getElementById('cfgRecepcaoSenha').value.trim();
 
     if (!nome || !usuario || !senha) return;
-    if (usuarioJaExisteEmAlgumPerfil(usuario, editId)) {
-      alert('Este nome de usuário já está em uso em outro cadastro.');
-      return;
+    try {
+      await DopinAPI.criarUsuario({ nome, usuario, senha, perfil: 'Recepção' });
+      evento.target.reset();
+      await carregarDadosDaNuvem();
+    } catch (err) {
+      alert(`Erro ao adicionar acesso da recepção: ${err.message}`);
     }
-
-    if (editId) {
-      const posicao = db.config.recepcionistas.findIndex((item) => item.id === editId);
-      if (posicao !== -1) db.config.recepcionistas[posicao] = { id: editId, nome, usuario, senha };
-    } else {
-      db.config.recepcionistas.push({ id: 'r_' + gerarId(), nome, usuario, senha });
-    }
-
-    salvarDB();
-    enfileirarSync('UPDATE_CONFIG', db.config);
-    resetarFormRecepcao();
-    renderizarConfig();
   });
 
-  document.getElementById('btnCancelarEditRecepcao').addEventListener('click', resetarFormRecepcao);
-
-  document.getElementById('formAddEspecialidade').addEventListener('submit', (evento) => {
-    evento.preventDefault();
-    db.config.especialidades.push({
-      nome: document.getElementById('cfgEspNome').value.trim().toUpperCase(),
-      percentual: Number(document.getElementById('cfgEspPerc').value) || 0
-    });
-    salvarDB();
-    enfileirarSync('UPDATE_CONFIG', db.config);
-    evento.target.reset();
-    popularSelects();
-    renderizarConfig();
+  document.getElementById('formAddEspecialidade')?.addEventListener('submit', (e) => {
+    e.preventDefault();
+    alert('A edição de especialidades na nuvem será ativada na próxima etapa.');
   });
 
-  document.getElementById('btnSalvarComissaoVenda').addEventListener('click', () => {
+  document.getElementById('formAddSaidaCat')?.addEventListener('submit', (e) => {
+    e.preventDefault();
+    alert('A edição de categorias de saída na nuvem será ativada na próxima etapa.');
+  });
+
+  document.getElementById('btnSalvarComissaoVenda').addEventListener('click', async () => {
     const novoPerc = Number(document.getElementById('cfgComissaoVenda').value);
-    db.config.percentualVenda = Number.isNaN(novoPerc) || novoPerc < 0 ? 0 : novoPerc;
-    salvarDB();
-    enfileirarSync('UPDATE_CONFIG', db.config);
-    atualizarPreviewMapa();
-    alert(`Comissão de venda atualizada para ${db.config.percentualVenda}%!`);
-  });
-
-  document.getElementById('formAddSaidaCat').addEventListener('submit', (evento) => {
-    evento.preventDefault();
-    const novaCat = document.getElementById('cfgSaidaNome').value.trim().toUpperCase();
-    if (novaCat && !db.config.categoriasSaida.includes(novaCat)) {
-      db.config.categoriasSaida.push(novaCat);
-      salvarDB();
-      enfileirarSync('UPDATE_CONFIG', db.config);
-      popularSelects();
-      renderizarConfig();
+    const percentualVenda = Number.isNaN(novoPerc) || novoPerc < 0 ? 0 : novoPerc;
+    try {
+      await DopinAPI.salvarClinica({ ...db.config.clinica, percentualVenda });
+      db.config.percentualVenda = percentualVenda;
+      atualizarPreviewMapa();
+      alert(`Comissão de venda atualizada para ${percentualVenda}%!`);
+    } catch (err) {
+      alert(`Erro ao atualizar comissão: ${err.message}`);
     }
-    evento.target.reset();
   });
 
-  document.getElementById('btnSalvarSistema').addEventListener('click', () => {
-    db.config.gasUrl = document.getElementById('cfgGasUrl').value.trim();
-    salvarDB();
-    enfileirarSync('UPDATE_CONFIG', db.config);
-    alert('Configurações salvas localmente!');
-  });
+  const btnSalvarSistema = document.getElementById('btnSalvarSistema');
+  if (btnSalvarSistema) {
+    btnSalvarSistema.addEventListener('click', () => {
+      alert('O sistema já está conectado automaticamente à nuvem Cloudflare (D1 + R2).');
+    });
+  }
 }
 
 // ==================== RENDERIZAÇÃO DAS ABAS OPERACIONAIS ====================
@@ -974,14 +836,17 @@ function renderizarMapa() {
     .join('');
 }
 
-window.excluirAtendimento = function (atendimentoId) {
+window.excluirAtendimento = async function (atendimentoId) {
   if (sessaoAtual && sessaoAtual.perfil === 'Profissional') return;
-  if (!confirm('Deseja excluir este atendimento?')) return;
+  if (!confirm('Deseja excluir este atendimento da nuvem?')) return;
 
-  db.atendimentos = db.atendimentos.filter((item) => item.id !== atendimentoId);
-  salvarDB();
-  enfileirarSync('DELETE_ATENDIMENTO', { id: atendimentoId });
-  renderizarTudo();
+  try {
+    await DopinAPI.excluirAtendimento(atendimentoId);
+    db.atendimentos = db.atendimentos.filter((item) => item.id !== atendimentoId);
+    renderizarTudo();
+  } catch (err) {
+    alert(`Erro ao excluir atendimento: ${err.message}`);
+  }
 };
 
 function renderizarSaidas() {
@@ -1011,13 +876,16 @@ function renderizarSaidas() {
   document.getElementById('saidasTotalDia').textContent = fmtBRL(somaSaidas);
 }
 
-window.excluirSaida = function (saidaId) {
-  if (!confirm('Deseja excluir esta saída?')) return;
+window.excluirSaida = async function (saidaId) {
+  if (!confirm('Deseja excluir esta saída da nuvem?')) return;
 
-  db.saidas = db.saidas.filter((item) => item.id !== saidaId);
-  salvarDB();
-  enfileirarSync('DELETE_SAIDA', { id: saidaId });
-  renderizarTudo();
+  try {
+    await DopinAPI.excluirSaida(saidaId);
+    db.saidas = db.saidas.filter((item) => item.id !== saidaId);
+    renderizarTudo();
+  } catch (err) {
+    alert(`Erro ao excluir saída: ${err.message}`);
+  }
 };
 
 function renderizarDiarioCaixa() {
@@ -1162,7 +1030,7 @@ function renderizarPagamentosDentistas() {
     .join('');
 }
 
-window.registrarPagamentoDentista = function (dentistaId, valorDigitado, tetoMaximo) {
+window.registrarPagamentoDentista = async function (dentistaId, valorDigitado, tetoMaximo) {
   const dataSelecionada = getDataAtiva();
   let valorNumerico = Number(valorDigitado) || 0;
   if (valorNumerico < 0) valorNumerico = 0;
@@ -1174,15 +1042,13 @@ window.registrarPagamentoDentista = function (dentistaId, valorDigitado, tetoMax
     valorNumerico = tetoMaximo;
   }
 
-  const chavePagamento = `${dataSelecionada}_${dentistaId}`;
-  db.pagamentosDentistas[chavePagamento] = valorNumerico;
-  salvarDB();
-  enfileirarSync('PAGAMENTO_DENTISTA', {
-    data: dataSelecionada,
-    dentistaId,
-    valorPago: valorNumerico
-  });
-  renderizarPagamentosDentistas();
+  try {
+    await DopinAPI.registrarPagamento({ data: dataSelecionada, dentistaId, valorPago: valorNumerico });
+    db.pagamentosDentistas[`${dataSelecionada}_${dentistaId}`] = valorNumerico;
+    renderizarPagamentosDentistas();
+  } catch (err) {
+    alert(`Erro ao registrar pagamento: ${err.message}`);
+  }
 };
 
 // ==================== PAINEL GERENCIAL ANUAL ====================
@@ -1203,6 +1069,7 @@ function renderizarGeral() {
 
   const atendimentosAno = db.atendimentos.filter((item) => String(item.data || '').startsWith(anoSelecionado));
   const saidasAno = db.saidas.filter((item) => String(item.data || '').startsWith(anoSelecionado));
+  const saidasOperacionaisAno = saidasAno.filter((item) => item.origem !== 'Desconto Produção');
 
   let receitaBrutaTotal = 0;
   let receitaLiquidaTotal = 0;
@@ -1214,16 +1081,12 @@ function renderizarGeral() {
     custoLaboratorioTotal += Number(item.valorLab) || 0;
   });
 
-  const despesaOperacionalTotal = saidasAno
-    .filter((item) => item.origem !== 'Desconto Produção')
-    .reduce((acc, item) => acc + (Number(item.valor) || 0), 0);
-
+  const despesaOperacionalTotal = saidasOperacionaisAno.reduce((acc, item) => acc + (Number(item.valor) || 0), 0);
   const taxasMaquinetaTotal = Math.max(0, receitaBrutaTotal - receitaLiquidaTotal);
   const lucroAnual = receitaLiquidaTotal - despesaOperacionalTotal;
   const margemLucro = receitaLiquidaTotal > 0 ? (lucroAnual / receitaLiquidaTotal) * 100 : 0;
   const ticketMedio = atendimentosAno.length > 0 ? receitaBrutaTotal / atendimentosAno.length : 0;
 
-  // 1. KPIs Estratégicos (IDs alinhados com index.html)
   document.getElementById('kpiAnualLiquido').textContent = fmtBRL(receitaLiquidaTotal);
   document.getElementById('kpiAnualBrutoSub').textContent = `Bruto: ${fmtBRL(receitaBrutaTotal)}`;
 
@@ -1237,39 +1100,25 @@ function renderizarGeral() {
   document.getElementById('kpiAnualAtendimentos').textContent = `${atendimentosAno.length} atendimentos no ano`;
   document.getElementById('kpiAnualLab').textContent = fmtBRL(custoLaboratorioTotal);
 
-  // 2. Consolidação Mês a Mês
   const resumoMensal = [];
   let maiorValorGrafico = 1;
-  let totalDinheiroAno = 0;
-  let totalPixAno = 0;
-  let totalDebitoAno = 0;
-  let totalCreditoAno = 0;
+  let totalDinheiroAno = 0, totalPixAno = 0, totalDebitoAno = 0, totalCreditoAno = 0;
 
   for (let idx = 0; idx < 12; idx++) {
     const mesNumero = String(idx + 1).padStart(2, '0');
     const prefixoMes = `${anoSelecionado}-${mesNumero}`;
 
     const atendMes = atendimentosAno.filter((a) => String(a.data || '').startsWith(prefixoMes));
-    const saidasMes = saidasAno.filter((s) => String(s.data || '').startsWith(prefixoMes));
+    const saidasMes = saidasOperacionaisAno.filter((s) => String(s.data || '').startsWith(prefixoMes));
 
     const liquidoMes = atendMes.reduce((s, a) => s + (Number(a.valorFinal) || 0), 0);
-    const despesasMes = saidasMes
-      .filter((s) => s.origem !== 'Desconto Produção')
-      .reduce((s, item) => s + (Number(item.valor) || 0), 0);
+    const despesasMes = saidasMes.reduce((s, item) => s + (Number(item.valor) || 0), 0);
     const resultadoMes = liquidoMes - despesasMes;
 
-    const dinheiroMes = atendMes
-      .filter((a) => a.formaId === 'dinheiro')
-      .reduce((s, a) => s + (Number(a.valorFinal) || 0), 0);
-    const pixMes = atendMes
-      .filter((a) => a.formaId === 'pix')
-      .reduce((s, a) => s + (Number(a.valorFinal) || 0), 0);
-    const debitoMes = atendMes
-      .filter((a) => a.formaId === 'debito')
-      .reduce((s, a) => s + (Number(a.valorFinal) || 0), 0);
-    const creditoMes = atendMes
-      .filter((a) => String(a.formaId || '').startsWith('credito'))
-      .reduce((s, a) => s + (Number(a.valorFinal) || 0), 0);
+    const dinheiroMes = atendMes.filter((a) => a.formaId === 'dinheiro').reduce((s, a) => s + (Number(a.valorFinal) || 0), 0);
+    const pixMes = atendMes.filter((a) => a.formaId === 'pix').reduce((s, a) => s + (Number(a.valorFinal) || 0), 0);
+    const debitoMes = atendMes.filter((a) => a.formaId === 'debito').reduce((s, a) => s + (Number(a.valorFinal) || 0), 0);
+    const creditoMes = atendMes.filter((a) => String(a.formaId || '').startsWith('credito')).reduce((s, a) => s + (Number(a.valorFinal) || 0), 0);
 
     totalDinheiroAno += dinheiroMes;
     totalPixAno += pixMes;
@@ -1280,20 +1129,12 @@ function renderizarGeral() {
     if (despesasMes > maiorValorGrafico) maiorValorGrafico = despesasMes;
 
     resumoMensal.push({
-      indice: idx,
-      mesNumero,
-      mesNome: rotulosMeses[idx],
-      liquido: liquidoMes,
-      despesas: despesasMes,
-      resultado: resultadoMes,
-      dinheiro: dinheiroMes,
-      pix: pixMes,
-      debito: debitoMes,
-      credito: creditoMes
+      mesNumero, mesNome: rotulosMeses[idx],
+      liquido: liquidoMes, despesas: despesasMes, resultado: resultadoMes,
+      dinheiro: dinheiroMes, pix: pixMes, debito: debitoMes, credito: creditoMes
     });
   }
 
-  // Gráfico de Barras
   const containerGrafico = document.getElementById('graficoAnualBarras');
   if (containerGrafico) {
     containerGrafico.innerHTML = resumoMensal
@@ -1312,7 +1153,6 @@ function renderizarGeral() {
       .join('');
   }
 
-  // 3. Tabela Consolidada Mês a Mês (9 colunas alinhadas com tabelaGeralMeses)
   const corpoTabelaMeses = document.querySelector('#tabelaGeralMeses tbody');
   if (corpoTabelaMeses) {
     corpoTabelaMeses.innerHTML = resumoMensal
@@ -1327,11 +1167,7 @@ function renderizarGeral() {
           <td>${fmtBRL(m.pix)}</td>
           <td>${fmtBRL(m.debito)}</td>
           <td>${fmtBRL(m.credito)}</td>
-          <td>
-            <button type="button" class="btn-edit-sm" onclick="abrirDemonstrativoDoMes('${m.mesNumero}')">
-              Demonstrativo
-            </button>
-          </td>
+          <td><button type="button" class="btn-edit-sm" onclick="abrirDemonstrativoDoMes('${m.mesNumero}')">Demonstrativo</button></td>
         </tr>`
       )
       .join('');
@@ -1364,35 +1200,19 @@ function renderizarGeral() {
       </tr>`;
   }
 
-  // 4. Desempenho Anual por Dentista (8 colunas alinhadas com tabelaGeralDentistas)
   const corpoDentistasAnual = document.querySelector('#tabelaGeralDentistas tbody');
   if (corpoDentistasAnual) {
     corpoDentistasAnual.innerHTML = db.config.dentistas
       .map((dent) => {
-        const vendidoAno = atendimentosAno
-          .filter((a) => a.dentistaVendaId === dent.id)
-          .reduce((s, a) => s + (Number(a.valorFinal) || 0), 0);
-
-        const comissaoVendaAno = atendimentosAno
-          .filter((a) => a.dentistaVendaId === dent.id)
-          .reduce((s, a) => s + (Number(a.comissaoVenda) || 0), 0);
-
-        const comissaoExecAno = atendimentosAno
-          .filter((a) => a.dentistaExecId === dent.id)
-          .reduce((s, a) => s + (Number(a.comissaoExec) || 0), 0);
-
+        const vendidoAno = atendimentosAno.filter((a) => a.dentistaVendaId === dent.id).reduce((s, a) => s + (Number(a.valorFinal) || 0), 0);
+        const comissaoVendaAno = atendimentosAno.filter((a) => a.dentistaVendaId === dent.id).reduce((s, a) => s + (Number(a.comissaoVenda) || 0), 0);
+        const comissaoExecAno = atendimentosAno.filter((a) => a.dentistaExecId === dent.id).reduce((s, a) => s + (Number(a.comissaoExec) || 0), 0);
         const producaoTotalAno = comissaoVendaAno + comissaoExecAno;
-
-        const descontosAno = saidasAno
-          .filter((s) => s.dentistaId === dent.id)
-          .reduce((s, a) => s + (Number(a.valor) || 0), 0);
-
+        const descontosAno = saidasAno.filter((s) => s.dentistaId === dent.id).reduce((s, a) => s + (Number(a.valor) || 0), 0);
         const totalPagoAno = Object.entries(db.pagamentosDentistas || {})
           .filter(([chave]) => chave.startsWith(anoSelecionado) && chave.endsWith(`_${dent.id}`))
           .reduce((s, [, val]) => s + (Number(val) || 0), 0);
-
-        const liquidoDevidoAno = Math.max(0, producaoTotalAno - descontosAno);
-        const saldoPendenteAno = Math.max(0, liquidoDevidoAno - totalPagoAno);
+        const saldoPendenteAno = Math.max(0, Math.max(0, producaoTotalAno - descontosAno) - totalPagoAno);
 
         return `
         <tr>
@@ -1409,13 +1229,12 @@ function renderizarGeral() {
       .join('');
   }
 
-  // 5A. Despesas Detalhadas por Categoria (Ano)
   const corpoDespesasCat = document.getElementById('geralDespesasBody');
   if (corpoDespesasCat) {
     const mapaCategorias = {};
     let somaTotalCategorias = 0;
 
-    saidasAno.forEach((s) => {
+    saidasOperacionaisAno.forEach((s) => {
       const cat = s.categoria || 'OUTROS';
       const val = Number(s.valor) || 0;
       mapaCategorias[cat] = (mapaCategorias[cat] || 0) + val;
@@ -1426,54 +1245,35 @@ function renderizarGeral() {
       .sort((a, b) => b[1] - a[1])
       .map(([cat, total]) => {
         const perc = somaTotalCategorias > 0 ? (total / somaTotalCategorias) * 100 : 0;
-        return `
-        <tr>
-          <td><strong>${escapeHTML(cat)}</strong></td>
-          <td class="text-danger">${fmtBRL(total)}</td>
-          <td>${perc.toFixed(1)}%</td>
-        </tr>`;
+        return `<tr><td><strong>${escapeHTML(cat)}</strong></td><td class="text-danger">${fmtBRL(total)}</td><td>${perc.toFixed(1)}%</td></tr>`;
       })
       .join('');
 
-    corpoDespesasCat.innerHTML =
-      linhasCat || '<tr><td colspan="3">Nenhuma despesa registrada neste ano.</td></tr>';
+    corpoDespesasCat.innerHTML = linhasCat || '<tr><td colspan="3">Nenhuma despesa registrada neste ano.</td></tr>';
   }
 
-  // 5B. Vendas por Especialidade (Ano)
   const corpoEspAno = document.getElementById('geralEspecialidadesBody');
   if (corpoEspAno) {
     const mapaEspecialidades = {};
-
     atendimentosAno.forEach((a) => {
       const esp = a.espNome || 'OUTROS';
-      if (!mapaEspecialidades[esp]) {
-        mapaEspecialidades[esp] = { qtd: 0, total: 0 };
-      }
+      if (!mapaEspecialidades[esp]) mapaEspecialidades[esp] = { qtd: 0, total: 0 };
       mapaEspecialidades[esp].qtd += 1;
       mapaEspecialidades[esp].total += Number(a.valorFinal) || 0;
     });
 
     const linhasEsp = Object.entries(mapaEspecialidades)
       .sort((a, b) => b[1].total - a[1].total)
-      .map(
-        ([esp, dados]) => `
-        <tr>
-          <td><strong>${escapeHTML(esp)}</strong></td>
-          <td>${dados.qtd}</td>
-          <td class="text-success"><strong>${fmtBRL(dados.total)}</strong></td>
-        </tr>`
-      )
+      .map(([esp, dados]) => `<tr><td><strong>${escapeHTML(esp)}</strong></td><td>${dados.qtd}</td><td class="text-success"><strong>${fmtBRL(dados.total)}</strong></td></tr>`)
       .join('');
 
-    corpoEspAno.innerHTML =
-      linhasEsp || '<tr><td colspan="3">Nenhum atendimento registrado neste ano.</td></tr>';
+    corpoEspAno.innerHTML = linhasEsp || '<tr><td colspan="3">Nenhum atendimento registrado neste ano.</td></tr>';
   }
 
-  // 6. Demonstrativo Mensal
   renderizarDemonstrativoMensal(anoSelecionado);
 }
 
-// ==================== DEMONSTRATIVO MENSAL E CONFIGURAÇÕES ====================
+// ==================== DEMONSTRATIVO MENSAL ====================
 function renderizarDemonstrativoMensal(anoSelecionado) {
   const seletorMes = document.getElementById('filtroMesDemo');
   if (!seletorMes) return;
@@ -1493,9 +1293,7 @@ function renderizarDemonstrativoMensal(anoSelecionado) {
     });
 
     const btnImprimir = document.getElementById('btnImprimirDemo');
-    if (btnImprimir) {
-      btnImprimir.addEventListener('click', () => window.print());
-    }
+    if (btnImprimir) btnImprimir.addEventListener('click', () => window.print());
   }
 
   const mesEscolhido = seletorMes.value || '01';
@@ -1515,17 +1313,16 @@ function renderizarDemonstrativoMensal(anoSelecionado) {
 
   const atendimentosMes = db.atendimentos.filter((a) => String(a.data || '').startsWith(prefixoPeriodo));
   const saidasMes = db.saidas.filter((s) => String(s.data || '').startsWith(prefixoPeriodo));
+  const saidasOpMes = saidasMes.filter((s) => s.origem !== 'Desconto Produção');
 
   const receitaBruta = atendimentosMes.reduce((acc, a) => acc + (Number(a.valorPago) || 0), 0);
   const receitaLiquida = atendimentosMes.reduce((acc, a) => acc + (Number(a.valorFinal) || 0), 0);
   const taxasCartao = Math.max(0, receitaBruta - receitaLiquida);
-  const despesasOperacionais = saidasMes
-    .filter((s) => s.origem !== 'Desconto Produção')
-    .reduce((acc, s) => acc + (Number(s.valor) || 0), 0);
+  const despesasOperacionais = saidasOpMes.reduce((acc, s) => acc + (Number(s.valor) || 0), 0);
   const resultadoLiquido = receitaLiquida - despesasOperacionais;
 
   const despesasPorCategoria = {};
-  saidasMes.forEach((s) => {
+  saidasOpMes.forEach((s) => {
     const cat = s.categoria || 'OUTROS';
     despesasPorCategoria[cat] = (despesasPorCategoria[cat] || 0) + (Number(s.valor) || 0);
   });
@@ -1537,29 +1334,14 @@ function renderizarDemonstrativoMensal(anoSelecionado) {
 
   const linhasDentistasHtml = db.config.dentistas
     .map((dent) => {
-      const comVenda = atendimentosMes
-        .filter((a) => a.dentistaVendaId === dent.id)
-        .reduce((acc, a) => acc + (Number(a.comissaoVenda) || 0), 0);
-      const comExec = atendimentosMes
-        .filter((a) => a.dentistaExecId === dent.id)
-        .reduce((acc, a) => acc + (Number(a.comissaoExec) || 0), 0);
-      const descontos = saidasMes
-        .filter((s) => s.dentistaId === dent.id)
-        .reduce((acc, s) => acc + (Number(s.valor) || 0), 0);
+      const comVenda = atendimentosMes.filter((a) => a.dentistaVendaId === dent.id).reduce((acc, a) => acc + (Number(a.comissaoVenda) || 0), 0);
+      const comExec = atendimentosMes.filter((a) => a.dentistaExecId === dent.id).reduce((acc, a) => acc + (Number(a.comissaoExec) || 0), 0);
+      const descontos = saidasMes.filter((s) => s.dentistaId === dent.id).reduce((acc, s) => acc + (Number(s.valor) || 0), 0);
       const totalRepasse = Math.max(0, comVenda + comExec - descontos);
-
-      return `
-        <tr>
-          <td><strong>${escapeHTML(dent.nome)}</strong></td>
-          <td>${fmtBRL(comVenda)}</td>
-          <td>${fmtBRL(comExec)}</td>
-          <td class="text-danger">${fmtBRL(descontos)}</td>
-          <td><strong>${fmtBRL(totalRepasse)}</strong></td>
-        </tr>`;
+      return `<tr><td><strong>${escapeHTML(dent.nome)}</strong></td><td>${fmtBRL(comVenda)}</td><td>${fmtBRL(comExec)}</td><td class="text-danger">${fmtBRL(descontos)}</td><td><strong>${fmtBRL(totalRepasse)}</strong></td></tr>`;
     })
     .join('');
 
-  // ID alinhado com index.html: demonstrativoMensalConteudo
   const containerDemo = document.getElementById('demonstrativoMensalConteudo');
   if (containerDemo) {
     containerDemo.innerHTML = `
@@ -1576,53 +1358,22 @@ function renderizarDemonstrativoMensal(anoSelecionado) {
       </div>
 
       <div class="demo-summary-grid">
-        <div class="demo-box">
-          <span>Receita Bruta</span>
-          <strong>${fmtBRL(receitaBruta)}</strong>
-        </div>
-        <div class="demo-box">
-          <span>Taxas de Cartão</span>
-          <strong class="text-danger">${fmtBRL(taxasCartao)}</strong>
-        </div>
-        <div class="demo-box">
-          <span>Receita Líquida</span>
-          <strong>${fmtBRL(receitaLiquida)}</strong>
-        </div>
-        <div class="demo-box">
-          <span>Despesas Operacionais</span>
-          <strong class="text-danger">${fmtBRL(despesasOperacionais)}</strong>
-        </div>
-        <div class="demo-box">
-          <span>Resultado Líquido</span>
-          <strong class="${resultadoLiquido >= 0 ? 'text-success' : 'text-danger'}">${fmtBRL(resultadoLiquido)}</strong>
-        </div>
+        <div class="demo-box"><span>Receita Bruta</span><strong>${fmtBRL(receitaBruta)}</strong></div>
+        <div class="demo-box"><span>Taxas de Cartão</span><strong class="text-danger">${fmtBRL(taxasCartao)}</strong></div>
+        <div class="demo-box"><span>Receita Líquida</span><strong>${fmtBRL(receitaLiquida)}</strong></div>
+        <div class="demo-box"><span>Despesas Operacionais</span><strong class="text-danger">${fmtBRL(despesasOperacionais)}</strong></div>
+        <div class="demo-box"><span>Resultado Líquido</span><strong class="${resultadoLiquido >= 0 ? 'text-success' : 'text-danger'}">${fmtBRL(resultadoLiquido)}</strong></div>
       </div>
 
       <h5 class="demo-section-title">Despesas por Categoria</h5>
       <div class="table-responsive">
-        <table>
-          <thead>
-            <tr>
-              <th>Categoria</th>
-              <th>Total no Mês</th>
-            </tr>
-          </thead>
-          <tbody>${linhasDespesasHtml}</tbody>
-        </table>
+        <table><thead><tr><th>Categoria</th><th>Total no Mês</th></tr></thead><tbody>${linhasDespesasHtml}</tbody></table>
       </div>
 
       <h5 class="demo-section-title">Resumo de Repasses aos Profissionais</h5>
       <div class="table-responsive">
         <table>
-          <thead>
-            <tr>
-              <th>Profissional</th>
-              <th>Comissão Venda</th>
-              <th>Comissão Execução</th>
-              <th>Descontos</th>
-              <th>Líquido a Repassar</th>
-            </tr>
-          </thead>
+          <thead><tr><th>Profissional</th><th>Comissão Venda</th><th>Comissão Execução</th><th>Descontos</th><th>Líquido a Repassar</th></tr></thead>
           <tbody>${linhasDentistasHtml}</tbody>
         </table>
       </div>
@@ -1650,9 +1401,11 @@ function renderizarConfig() {
   if (inpComVenda) inpComVenda.value = db.config.percentualVenda ?? 5;
 
   const inpGas = document.getElementById('cfgGasUrl');
-  if (inpGas) inpGas.value = db.config.gasUrl || '';
+  if (inpGas) {
+    inpGas.value = API_BASE_URL;
+    inpGas.readOnly = true;
+  }
 
-  // IDs alinhados com index.html
   const listaDentistas = document.getElementById('listaDentistas');
   if (listaDentistas) {
     listaDentistas.innerHTML = db.config.dentistas
@@ -1661,15 +1414,14 @@ function renderizarConfig() {
         <li>
           <div>
             <strong>${escapeHTML(d.nome)}</strong>
-            <br><small class="hint">Usuário: <code>${escapeHTML(d.usuario)}</code> • Senha: <code>${escapeHTML(d.senha)}</code></small>
+            <br><small class="hint">Usuário: <code>${escapeHTML(d.usuario)}</code> • Senha protegida por hash</small>
           </div>
           <div class="item-actions">
-            <button type="button" class="btn-edit-sm" onclick="editarDentista('${escapeHTML(d.id)}')">Editar</button>
-            <button type="button" class="btn-danger-sm" onclick="removerDentista('${escapeHTML(d.id)}')">Excluir</button>
+            <button type="button" class="btn-danger-sm" onclick="removerUsuarioNuvem('${escapeHTML(d.id)}')">Desativar</button>
           </div>
         </li>`
       )
-      .join('');
+      .join('') || '<li><span class="hint">Nenhum dentista cadastrado ainda.</span></li>';
   }
 
   const listaRecepcao = document.getElementById('listaRecepcao');
@@ -1680,134 +1432,44 @@ function renderizarConfig() {
         <li>
           <div>
             <strong>${escapeHTML(r.nome)}</strong>
-            <br><small class="hint">Usuário: <code>${escapeHTML(r.usuario)}</code> • Senha: <code>${escapeHTML(r.senha)}</code></small>
+            <br><small class="hint">Usuário: <code>${escapeHTML(r.usuario)}</code> • Senha protegida por hash</small>
           </div>
           <div class="item-actions">
-            <button type="button" class="btn-edit-sm" onclick="editarRecepcao('${escapeHTML(r.id)}')">Editar</button>
-            <button type="button" class="btn-danger-sm" onclick="removerRecepcao('${escapeHTML(r.id)}')">Excluir</button>
+            <button type="button" class="btn-danger-sm" onclick="removerUsuarioNuvem('${escapeHTML(r.id)}')">Desativar</button>
           </div>
         </li>`
       )
-      .join('');
+      .join('') || '<li><span class="hint">Nenhuma recepção cadastrada ainda.</span></li>';
   }
 
   const listaEsp = document.getElementById('listaEspecialidades');
   if (listaEsp) {
     listaEsp.innerHTML = db.config.especialidades
-      .map(
-        (esp, idx) => `
-        <li>
-          <span><strong>${escapeHTML(esp.nome)}</strong></span>
-          <div class="item-actions">
-            <input type="number" step="0.1" min="0" max="100" class="inline-edit"
-              value="${Number(esp.percentual) || 0}"
-              onchange="atualizarPercentualEspecialidade(${idx}, this.value)" /> %
-            <button type="button" class="btn-danger-sm" onclick="removerEspecialidade(${idx})">Excluir</button>
-          </div>
-        </li>`
-      )
+      .map((esp) => `<li><span><strong>${escapeHTML(esp.nome)}</strong></span><span><strong>${Number(esp.percentual) || 0}%</strong></span></li>`)
       .join('');
   }
 
   const listaTaxas = document.getElementById('listaTaxas');
   if (listaTaxas) {
     listaTaxas.innerHTML = db.config.taxas
-      .map(
-        (tx, idx) => `
-        <li>
-          <span><strong>${escapeHTML(tx.nome)}</strong></span>
-          <div class="item-actions">
-            <input type="number" step="0.1" min="0" max="100" class="inline-edit"
-              value="${Number(tx.taxa) || 0}"
-              onchange="atualizarTaxaPagamento(${idx}, this.value)" /> %
-          </div>
-        </li>`
-      )
+      .map((tx) => `<li><span><strong>${escapeHTML(tx.nome)}</strong></span><span><strong>${Number(tx.taxa) || 0}%</strong></span></li>`)
       .join('');
   }
 
   const listaSaidas = document.getElementById('listaSaidasCat');
   if (listaSaidas) {
     listaSaidas.innerHTML = db.config.categoriasSaida
-      .map(
-        (cat, idx) => `
-        <li>
-          <span><strong>${escapeHTML(cat)}</strong></span>
-          <button type="button" class="btn-danger-sm" onclick="removerCategoriaSaida(${idx})">Excluir</button>
-        </li>`
-      )
+      .map((cat) => `<li><span><strong>${escapeHTML(cat)}</strong></span></li>`)
       .join('');
   }
 }
 
-window.editarDentista = function (id) {
-  const dent = db.config.dentistas.find((d) => d.id === id);
-  if (!dent) return;
-  document.getElementById('cfgDentistaEditId').value = dent.id;
-  document.getElementById('cfgDentistaNome').value = dent.nome;
-  document.getElementById('cfgDentistaUsuario').value = dent.usuario;
-  document.getElementById('cfgDentistaSenha').value = dent.senha;
-  document.getElementById('btnSalvarDentista').textContent = 'Salvar';
-  document.getElementById('btnCancelarEditDentista').classList.remove('hidden');
-};
-
-window.removerDentista = function (id) {
-  if (!confirm('Remover este dentista da lista?')) return;
-  db.config.dentistas = db.config.dentistas.filter((d) => d.id !== id);
-  salvarDB();
-  enfileirarSync('UPDATE_CONFIG', db.config);
-  popularSelects();
-  renderizarConfig();
-};
-
-window.editarRecepcao = function (id) {
-  const rec = db.config.recepcionistas.find((r) => r.id === id);
-  if (!rec) return;
-  document.getElementById('cfgRecepcaoEditId').value = rec.id;
-  document.getElementById('cfgRecepcaoNome').value = rec.nome;
-  document.getElementById('cfgRecepcaoUsuario').value = rec.usuario;
-  document.getElementById('cfgRecepcaoSenha').value = rec.senha;
-  document.getElementById('btnSalvarRecepcao').textContent = 'Salvar';
-  document.getElementById('btnCancelarEditRecepcao').classList.remove('hidden');
-};
-
-window.removerRecepcao = function (id) {
-  if (!confirm('Remover este acesso da recepção?')) return;
-  db.config.recepcionistas = db.config.recepcionistas.filter((r) => r.id !== id);
-  salvarDB();
-  enfileirarSync('UPDATE_CONFIG', db.config);
-  renderizarConfig();
-};
-
-window.atualizarPercentualEspecialidade = function (idx, novoValor) {
-  db.config.especialidades[idx].percentual = Math.max(0, Number(novoValor) || 0);
-  salvarDB();
-  enfileirarSync('UPDATE_CONFIG', db.config);
-  atualizarPreviewMapa();
-};
-
-window.removerEspecialidade = function (idx) {
-  if (!confirm('Remover esta especialidade?')) return;
-  db.config.especialidades.splice(idx, 1);
-  salvarDB();
-  enfileirarSync('UPDATE_CONFIG', db.config);
-  popularSelects();
-  renderizarConfig();
-};
-
-window.atualizarTaxaPagamento = function (idx, novaTaxa) {
-  db.config.taxas[idx].taxa = Math.max(0, Number(novaTaxa) || 0);
-  salvarDB();
-  enfileirarSync('UPDATE_CONFIG', db.config);
-  popularSelects();
-  atualizarPreviewMapa();
-};
-
-window.removerCategoriaSaida = function (idx) {
-  if (!confirm('Remover esta categoria de saída?')) return;
-  db.config.categoriasSaida.splice(idx, 1);
-  salvarDB();
-  enfileirarSync('UPDATE_CONFIG', db.config);
-  popularSelects();
-  renderizarConfig();
+window.removerUsuarioNuvem = async function (id) {
+  if (!confirm('Desativar este acesso?')) return;
+  try {
+    await DopinAPI.desativarUsuario(id);
+    await carregarDadosDaNuvem();
+  } catch (err) {
+    alert(`Erro ao desativar usuário: ${err.message}`);
+  }
 };

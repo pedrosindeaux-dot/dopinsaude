@@ -35,7 +35,7 @@
 
         <div id="loginStatusBadge" class="status-pill-light online">
           <span class="dot"></span>
-          <span id="loginStatusTexto">Sistema Online e Sincronizado</span>
+          <span id="loginStatusTexto">Nuvem Cloudflare Ativa</span>
         </div>
       </div>
     </header>
@@ -112,6 +112,10 @@
                 <span>Entrar no Sistema</span>
                 <i data-lucide="arrow-right"></i>
               </button>
+
+              <button type="button" id="btnAbrirCadastroClinica" class="btn btn-outline btn-login-submit" style="margin-top: 10px;">
+                <span>Criar conta da minha clínica</span>
+              </button>
             </form>
 
             <div class="login-footer">
@@ -158,10 +162,10 @@
 
         <div id="statusConexao" class="status-badge online" title="Status da sincronização">
           <span class="dot"></span>
-          <span id="statusTexto">Online</span>
+          <span id="statusTexto">Nuvem OK</span>
         </div>
 
-        <button id="btnSincronizar" class="btn btn-outline-light" title="Fila de sincronização local">
+        <button id="btnSincronizar" class="btn btn-outline-light" title="Atualizar dados da nuvem">
           <i data-lucide="refresh-cw"></i> <span id="badgePendentes">0</span>
         </button>
 
@@ -758,18 +762,18 @@
           </div>
         </div>
 
-        <!-- Integração Futura -->
+        <!-- Integração Nuvem -->
         <div class="card">
           <div class="card-header">
-            <h3>Integração Futura (Nuvem)</h3>
+            <h3>Integração Nuvem (Cloudflare D1 + R2)</h3>
           </div>
           <div class="grid-form">
             <div class="form-group">
-              <label>URL do Web App (Google Apps Script — Configurar depois)</label>
-              <input type="url" id="cfgGasUrl" placeholder="https://script.google.com/macros/s/..." />
+              <label>URL da API (Cloudflare Workers)</label>
+              <input type="url" id="cfgGasUrl" readonly />
             </div>
             <div class="form-actions">
-              <button id="btnSalvarSistema" class="btn btn-primary">Salvar Configurações</button>
+              <button id="btnSalvarSistema" class="btn btn-primary">Verificar Conexão</button>
             </div>
           </div>
         </div>
@@ -791,6 +795,27 @@
     </div>
   </div>
 
+  <!-- Modal de Cadastro de Nova Clínica (SaaS) -->
+  <div id="modalCadastroClinica" class="modal-backdrop hidden no-print">
+    <div class="modal-box">
+      <h3><i data-lucide="building-2"></i> Nova Clínica</h3>
+      <p class="hint">Crie o acesso administrativo da sua clínica na nuvem.</p>
+      <form id="formCadastroClinica" style="display:flex; flex-direction:column; gap:10px;">
+        <input type="text" id="cadClinicaNome" placeholder="Nome da clínica *" required />
+        <input type="email" id="cadClinicaEmail" placeholder="E-mail institucional (opcional)" />
+        <input type="text" id="cadAdminNome" placeholder="Seu nome completo *" required />
+        <input type="text" id="cadAdminUsuario" placeholder="Usuário de login (ex: admin.sorriso) *" required />
+        <input type="password" id="cadAdminSenha" placeholder="Crie uma senha segura *" minlength="6" required />
+        <p id="cadClinicaErro" class="error-text hidden"></p>
+        <div class="modal-actions">
+          <button type="button" id="btnCancelarCadastroClinica" class="btn btn-outline">Cancelar</button>
+          <button type="submit" id="btnConfirmarCadastroClinica" class="btn btn-primary">Criar Clínica</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="api.js"></script>
   <script src="script.js"></script>
 </body>
 </html>

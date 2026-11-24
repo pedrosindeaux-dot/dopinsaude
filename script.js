@@ -1,3 +1,4 @@
+// DôPin Saúde — script.js (atualizado com Painel Master)
 // ==================== ESTADO EM MEMÓRIA (ALIMENTADO PELA NUVEM) ====================
 const SESSION_KEY = 'dopin_saude_session_v1';
 
@@ -27,7 +28,8 @@ window.db = {
   saidas: [],
   pagamentosDentistas: {},
   pacientes: [],
-  aprovacoes: { atendimentos: [], saidas: [], pacientes: [] }
+  aprovacoes: { atendimentos: [], saidas: [], pacientes: [] },
+  masterClinicas: []
 };
 
 window.sessaoAtual = null;
@@ -251,6 +253,8 @@ document.addEventListener('DOMContentLoaded', () => {
   configurarConexao();
   if (window.ProntuarioModule) window.ProntuarioModule.init();
   if (window.MedicamentosModule) window.MedicamentosModule.init();
+  configurarPainelMaster();
+  configurarTrocaSenhaObrigatoria();
   verificarSessaoSalva();
 });
 
@@ -444,7 +448,8 @@ function configurarLogin() {
           loginUsuario: u.usuario,
           perfil: u.perfil,
           dentistaId: u.perfil === 'Profissional' ? u.id : null,
-          recepcaoId: u.perfil === 'Recepção' ? u.id : null
+          recepcaoId: u.perfil === 'Recepção' ? u.id : null,
+          trocarSenha: Boolean(u.trocar_senha)
         },
         manter
       );
@@ -495,11 +500,29 @@ async function iniciarSessao(dados, salvarNoStorage = false) {
   const tabAprovacoes = document.getElementById('navTabAprovacoes');
   const tabGeral = document.getElementById('navTabGeral');
   const tabConfig = document.getElementById('navTabConfig');
+  const tabMasterCriar = document.getElementById('navTabMasterCriar');
+  const tabMasterAssin = document.getElementById('navTabMasterAssinaturas');
+  const tabMasterReset = document.getElementById('navTabMasterReset');
 
   const cardFormMapa = document.getElementById('cardFormMapa');
   const thAcoesMapa = document.getElementById('thAcoesMapa');
   const hintMapaProf = document.getElementById('hintMapaProfissional');
 
+  // Fluxo exclusivo do SuperAdmin (Master)
+  if (dados.perfil === 'SuperAdmin') {
+    [tabMapa, tabPacientes, tabMedicamentos, tabSaidas, tabCaixa, tabPagamentos, tabAprovacoes, tabGeral, tabConfig]
+      .forEach((t) => t?.classList.add('hidden'));
+    [tabMasterCriar, tabMasterAssin, tabMasterReset].forEach((t) => t?.classList.remove('hidden'));
+
+    document.getElementById('headerClinicaNome')?.classList.add('hidden');
+    document.getElementById('loginScreen').classList.add('hidden');
+    document.getElementById('appShell').classList.remove('hidden');
+    await carregarDadosMaster();
+    ativarAba('master-assinaturas');
+    return;
+  }
+
+  [tabMasterCriar, tabMasterAssin, tabMasterReset].forEach((t) => t?.classList.add('hidden'));
   tabPacientes?.classList.remove('hidden');
 
   if (dados.perfil === 'Profissional') {
@@ -550,6 +573,9 @@ async function iniciarSessao(dados, salvarNoStorage = false) {
   document.getElementById('appShell').classList.remove('hidden');
   await carregarDadosDaNuvem();
   ativarAba('mapa');
+  if (dados.trocarSenha) {
+    document.getElementById('modalTrocarSenhaObrigatoria')?.classList.remove('hidden');
+  }
 }
 
 function encerrarSessao() {
@@ -576,7 +602,9 @@ function configurarConexao() {
   window.addEventListener('online', atualizarRede);
   window.addEventListener('offline', atualizarRede);
   document.getElementById('btnSincronizar').addEventListener('click', async () => {
-    if (window.sessaoAtual) await carregarDadosDaNuvem();
+    if (!window.sessaoAtual) return;
+    if (window.sessaoAtual.perfil === 'SuperAdmin') await carregarDadosMaster();
+    else await carregarDadosDaNuvem();
   });
   atualizarRede();
 }
@@ -1613,3 +1641,176 @@ window.removerUsuarioNuvem = async function (id) {
     alert(`Erro ao desativar usuário: ${err.message}`);
   }
 };
+
+// ==================== PAINEL MASTER (SUPER ADMIN) ====================
+function configurarPainelMaster() {
+  document.getElementById('btnMasterAtualizar')?.addEventListener('click', carregarDadosMaster);
+
+  document.getElementById('formMasterCriarClinica')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = document.getElementById('btnMasterCriar');
+    btn.disabled = true;
+    btn.textContent = 'Criando...';
+
+    try {
+      const payload = {
+        nome_clinica: document.getElementById('mCadNomeClinica').value.trim(),
+        cnpj: document.getElementById('mCadCnpj').value.trim(),
+        telefone: document.getElementById('mCadTelefone').value.trim(),
+        email: document.getElementById('mCadEmail').value.trim(),
+        plano: document.getElementById('mCadPlano').value,
+        status_assinatura: document.getElementById('mCadStatus').value,
+        nome_admin: document.getElementById('mCadNomeAdmin').value.trim(),
+        usuario: document.getElementById('mCadUsuarioAdmin').value.trim().toLowerCase(),
+        senha_provisoria: document.getElementById('mCadSenhaProv').value.trim()
+      };
+
+      await DopinAPI.masterCriarClinica(payload);
+      alert(
+        `Clínica "${payload.nome_clinica}" criada com sucesso!\n\nLogin: ${payload.usuario}\nSenha provisória: ${payload.senha_provisoria}\n\nNo primeiro acesso, o proprietário deverá definir a senha definitiva.`
+      );
+      e.target.reset();
+      await carregarDadosMaster();
+      ativarAba('master-assinaturas');
+    } catch (err) {
+      alert(`Erro ao criar clínica: ${err.message}`);
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '<i data-lucide="plus-circle"></i> Criar Clínica e Liberar Acesso';
+      if (typeof lucide !== 'undefined') lucide.createIcons();
+    }
+  });
+
+  document.getElementById('formMasterResetSenha')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const clinica_id = document.getElementById('mResetClinicaId').value;
+    const nova_senha_provisoria = document.getElementById('mResetNovaSenha').value.trim();
+    if (!clinica_id || !nova_senha_provisoria) return;
+
+    const btn = document.getElementById('btnMasterResetar');
+    btn.disabled = true;
+    try {
+      const res = await DopinAPI.masterResetarSenha({ clinica_id, nova_senha_provisoria });
+      alert(
+        `Senha redefinida com sucesso!\n\nLogin do Admin: ${res.usuario}\nNova senha provisória: ${nova_senha_provisoria}`
+      );
+      e.target.reset();
+    } catch (err) {
+      alert(`Erro ao redefinir senha: ${err.message}`);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+}
+
+async function carregarDadosMaster() {
+  atualizarStatusNuvem('carregando', 'Sincronizando...');
+  try {
+    const res = await DopinAPI.masterListarClinicas();
+    window.db.masterClinicas = res.clinicas || [];
+    renderizarPainelMaster();
+    atualizarStatusNuvem('online', 'Master OK');
+  } catch (err) {
+    atualizarStatusNuvem('erro', 'Erro Master');
+    alert(`Erro ao carregar clínicas: ${err.message}`);
+  }
+}
+
+function renderizarPainelMaster() {
+  const lista = window.db.masterClinicas || [];
+
+  // Tabela de Assinaturas
+  const tbody = document.getElementById('tabelaMasterClinicasBody');
+  if (tbody) {
+    tbody.innerHTML = lista.length
+      ? lista
+          .map((c) => {
+            const st = c.status_assinatura || 'ativa';
+            const badgeClass = st === 'ativa' ? 'realizado' : st === 'teste' ? 'andamento' : 'pendente';
+            const btnToggle =
+              st === 'suspensa'
+                ? `<button type="button" class="btn-success-sm" onclick="masterAlterarAssinatura('${window.escapeHTML(c.id)}', 'ativa', '${window.escapeHTML(c.plano || 'basico')}')">Ativar</button>`
+                : `<button type="button" class="btn-danger-sm" onclick="masterAlterarAssinatura('${window.escapeHTML(c.id)}', 'suspensa', '${window.escapeHTML(c.plano || 'basico')}')">Suspender</button>`;
+
+            return `
+            <tr>
+              <td><strong>${window.escapeHTML(c.nome)}</strong><br><small class="hint">${window.escapeHTML(c.email || c.telefone || '-')}</small></td>
+              <td>${window.escapeHTML(c.admin_nome || '-')}<br><small class="hint"><code>${window.escapeHTML(c.admin_usuario || '-')}</code></small></td>
+              <td>${Number(c.total_usuarios || 0)} usuários • ${Number(c.total_pacientes || 0)} pacientes</td>
+              <td>
+                <select onchange="masterAlterarAssinatura('${window.escapeHTML(c.id)}', '${window.escapeHTML(st)}', this.value)" style="padding:4px 6px; font-size:0.82rem;">
+                  <option value="basico" ${c.plano === 'basico' ? 'selected' : ''}>Básico</option>
+                  <option value="profissional" ${c.plano === 'profissional' ? 'selected' : ''}>Profissional</option>
+                  <option value="premium" ${c.plano === 'premium' ? 'selected' : ''}>Premium</option>
+                </select>
+              </td>
+              <td><span class="status-tag ${badgeClass}">${window.escapeHTML(st.toUpperCase())}</span></td>
+              <td class="item-actions">${btnToggle}</td>
+            </tr>`;
+          })
+          .join('')
+      : '<tr><td colspan="6">Nenhuma clínica cadastrada ainda.</td></tr>';
+  }
+
+  // Select da aba Reset de Senha
+  const selReset = document.getElementById('mResetClinicaId');
+  if (selReset) {
+    selReset.innerHTML =
+      '<option value="">-- Selecione uma clínica --</option>' +
+      lista
+        .map(
+          (c) =>
+            `<option value="${window.escapeHTML(c.id)}">${window.escapeHTML(c.nome)} (Admin: ${window.escapeHTML(c.admin_usuario || 'sem admin')})</option>`
+        )
+        .join('');
+  }
+}
+
+window.masterAlterarAssinatura = async function (clinicaId, status_assinatura, plano) {
+  try {
+    await DopinAPI.masterAtualizarAssinatura(clinicaId, { status_assinatura, plano });
+    await carregarDadosMaster();
+  } catch (err) {
+    alert(`Erro ao atualizar assinatura: ${err.message}`);
+  }
+};
+
+// ==================== TROCA OBRIGATÓRIA DE SENHA (1º ACESSO) ====================
+function configurarTrocaSenhaObrigatoria() {
+  const form = document.getElementById('formTrocaObrigatoria');
+  if (!form) return;
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const erroEl = document.getElementById('obrigSenhaErro');
+    erroEl.classList.add('hidden');
+
+    const senha_atual = document.getElementById('obrigSenhaAtual').value;
+    const nova_senha = document.getElementById('obrigNovaSenha').value;
+    const confirmacao_senha = document.getElementById('obrigConfirmaSenha').value;
+
+    if (nova_senha !== confirmacao_senha) {
+      erroEl.textContent = 'A nova senha e a confirmação não conferem.';
+      erroEl.classList.remove('hidden');
+      return;
+    }
+
+    const btn = document.getElementById('btnSalvarTrocaObrig');
+    btn.disabled = true;
+    try {
+      await DopinAPI.alterarSenha({ senha_atual, nova_senha, confirmacao_senha });
+      if (window.sessaoAtual) {
+        window.sessaoAtual.trocarSenha = false;
+        localStorage.setItem(SESSION_KEY, JSON.stringify(window.sessaoAtual));
+      }
+      form.reset();
+      document.getElementById('modalTrocarSenhaObrigatoria').classList.add('hidden');
+      alert('Senha definitiva cadastrada com sucesso!');
+    } catch (err) {
+      erroEl.textContent = err.message || 'Erro ao alterar senha.';
+      erroEl.classList.remove('hidden');
+    } finally {
+      btn.disabled = false;
+    }
+  });
+}

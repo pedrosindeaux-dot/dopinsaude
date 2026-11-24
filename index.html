@@ -111,9 +111,7 @@
                 <i data-lucide="arrow-right"></i>
               </button>
 
-              <button type="button" id="btnAbrirCadastroClinica" class="btn btn-outline btn-login-submit" style="margin-top: 10px;">
-                <span>Criar conta da minha clínica</span>
-              </button>
+
             </form>
 
             <div class="login-footer">
@@ -122,6 +120,129 @@
           </div>
         </div>
       </div>
+      <!-- ==================== ABA MASTER 1: CRIAR CLÍNICA + 1º ACESSO ==================== -->
+      <section id="tab-master-criar" class="tab-content">
+        <div class="card clinic-profile-card">
+          <div class="card-header">
+            <h2><i data-lucide="building-2"></i> Criar Nova Clínica &amp; 1º Acesso Administrativo</h2>
+            <span class="hint">O proprietário receberá a senha provisória e será orientado a alterá-la no primeiro acesso.</span>
+          </div>
+          <form id="formMasterCriarClinica" class="grid-form">
+            <div class="form-group">
+              <label>Nome da Clínica *</label>
+              <input type="text" id="mCadNomeClinica" placeholder="Ex: Clínica Sorriso &amp; Vida" required />
+            </div>
+            <div class="form-group">
+              <label>CNPJ ou CPF</label>
+              <input type="text" id="mCadCnpj" placeholder="00.000.000/0001-00" />
+            </div>
+            <div class="form-group">
+              <label>Telefone / WhatsApp</label>
+              <input type="text" id="mCadTelefone" placeholder="(85) 99999-9999" />
+            </div>
+            <div class="form-group">
+              <label>E-mail da Clínica</label>
+              <input type="email" id="mCadEmail" placeholder="contato@clinica.com.br" />
+            </div>
+            <div class="form-group">
+              <label>Plano *</label>
+              <select id="mCadPlano">
+                <option value="basico">Básico</option>
+                <option value="profissional">Profissional</option>
+                <option value="premium">Premium</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Status Inicial *</label>
+              <select id="mCadStatus">
+                <option value="ativa">Ativa</option>
+                <option value="teste">Período de Teste</option>
+              </select>
+            </div>
+
+            <div class="form-span-full" style="border-top:1px solid var(--border); padding-top:12px; margin-top:4px;">
+              <h3 style="font-size:0.96rem; color:var(--petrol-800);">Dados do 1º Acesso (Proprietário / Admin)</h3>
+            </div>
+
+            <div class="form-group">
+              <label>Nome do Proprietário / Admin *</label>
+              <input type="text" id="mCadNomeAdmin" placeholder="Ex: Dr. João Silva" required />
+            </div>
+            <div class="form-group">
+              <label>Login Administrativo *</label>
+              <input type="text" id="mCadUsuarioAdmin" placeholder="Ex: admin.sorriso" required />
+            </div>
+            <div class="form-group">
+              <label>Senha Provisória (mín. 6 caracteres) *</label>
+              <input type="text" id="mCadSenhaProv" placeholder="Ex: dopin123" minlength="6" required />
+            </div>
+
+            <div class="form-actions">
+              <button type="submit" id="btnMasterCriar" class="btn btn-primary">
+                <i data-lucide="plus-circle"></i> Criar Clínica e Liberar Acesso
+              </button>
+            </div>
+          </form>
+        </div>
+      </section>
+
+      <!-- ==================== ABA MASTER 2: CONTROLE DE ASSINATURA ==================== -->
+      <section id="tab-master-assinaturas" class="tab-content">
+        <div class="card">
+          <div class="card-header">
+            <h2><i data-lucide="credit-card"></i> Controle de Assinaturas &amp; Clínicas</h2>
+            <button type="button" id="btnMasterAtualizar" class="btn btn-outline btn-sm">
+              <i data-lucide="refresh-cw"></i> Atualizar Lista
+            </button>
+          </div>
+          <p class="hint" style="margin-bottom:14px;">
+            Clínicas com status <strong>Suspensa</strong> têm o login bloqueado automaticamente para todos os usuários, mantendo todos os dados preservados.
+          </p>
+          <div class="table-responsive">
+            <table>
+              <thead>
+                <tr>
+                  <th>Clínica</th>
+                  <th>Admin / Login</th>
+                  <th>Uso (Usuários / Pacientes)</th>
+                  <th>Plano</th>
+                  <th>Status</th>
+                  <th>Ações</th>
+                </tr>
+              </thead>
+              <tbody id="tabelaMasterClinicasBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ==================== ABA MASTER 3: RESET DE SENHA ==================== -->
+      <section id="tab-master-reset" class="tab-content">
+        <div class="card" style="max-width:620px;">
+          <div class="card-header">
+            <h2><i data-lucide="key-round"></i> Reset de Senha do Administrador da Clínica</h2>
+          </div>
+          <p class="hint" style="margin-bottom:14px;">
+            Selecione a clínica e defina uma nova senha provisória. No próximo login, o proprietário será solicitado a cadastrar sua senha definitiva.
+          </p>
+          <form id="formMasterResetSenha" class="grid-form">
+            <div class="form-group form-span-full">
+              <label>Selecione a Clínica *</label>
+              <select id="mResetClinicaId" required></select>
+            </div>
+            <div class="form-group form-span-full">
+              <label>Nova Senha Provisória (mín. 6 caracteres) *</label>
+              <input type="text" id="mResetNovaSenha" placeholder="Ex: nova1234" minlength="6" required />
+            </div>
+            <div class="form-actions">
+              <button type="submit" id="btnMasterResetar" class="btn btn-primary">
+                <i data-lucide="shield-check"></i> Redefinir Senha Provisória
+              </button>
+            </div>
+          </form>
+        </div>
+      </section>
+
     </main>
   </div>
 
@@ -200,6 +321,15 @@
       </button>
       <button class="tab-btn" data-tab="config" data-protected="true" id="navTabConfig">
         <i data-lucide="settings"></i> Configurações
+      </button>
+      <button class="tab-btn hidden" data-tab="master-criar" id="navTabMasterCriar">
+        <i data-lucide="building-2"></i> Criar Clínica + 1º Acesso
+      </button>
+      <button class="tab-btn hidden" data-tab="master-assinaturas" id="navTabMasterAssinaturas">
+        <i data-lucide="credit-card"></i> Controle de Assinatura
+      </button>
+      <button class="tab-btn hidden" data-tab="master-reset" id="navTabMasterReset">
+        <i data-lucide="key-round"></i> Reset de Senha
       </button>
     </nav>
 
@@ -1328,6 +1458,23 @@
         </div>
       </section>
     </main>
+  </div>
+
+  <!-- Modal de Troca Obrigatória de Senha (1º Acesso / Reset) -->
+  <div id="modalTrocarSenhaObrigatoria" class="modal-backdrop hidden no-print">
+    <div class="modal-box">
+      <h3><i data-lucide="key-round"></i> Defina sua Senha Definitiva</h3>
+      <p class="hint">Você acessou com uma senha provisória. Por segurança, crie sua nova senha pessoal agora.</p>
+      <form id="formTrocaObrigatoria" style="display:flex; flex-direction:column; gap:10px;">
+        <input type="password" id="obrigSenhaAtual" placeholder="Senha provisória atual *" required />
+        <input type="password" id="obrigNovaSenha" placeholder="Nova senha definitiva (mín. 6 caracteres) *" minlength="6" required />
+        <input type="password" id="obrigConfirmaSenha" placeholder="Confirme a nova senha *" minlength="6" required />
+        <p id="obrigSenhaErro" class="error-text hidden"></p>
+        <div class="modal-actions">
+          <button type="submit" id="btnSalvarTrocaObrig" class="btn btn-primary">Salvar Nova Senha</button>
+        </div>
+      </form>
+    </div>
   </div>
 
   <!-- Modal de Senha -->

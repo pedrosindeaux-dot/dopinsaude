@@ -37,6 +37,14 @@ const DopinAPI = {
     return dados;
   },
 
+  // Super Admin (Master)
+  masterListarClinicas() { return this.request('/master/clinicas'); },
+  masterCriarClinica(payload) { return this.request('/master/clinicas', { method: 'POST', body: payload }); },
+  masterAtualizarAssinatura(clinicaId, payload) {
+    return this.request(`/master/clinicas/${encodeURIComponent(clinicaId)}/assinatura`, { method: 'PUT', body: payload });
+  },
+  masterResetarSenha(payload) { return this.request('/master/reset-senha', { method: 'POST', body: payload }); },
+
   // Auth & Senha
   registrarClinica(payload) { return this.request('/auth/registrar-clinica', { method: 'POST', body: payload }); },
   login(usuario, senha) { return this.request('/auth/login', { method: 'POST', body: { usuario, senha } }); },

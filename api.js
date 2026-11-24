@@ -1,4 +1,4 @@
-// ==================== CLIENTE DA API CLOUDFLARE (DÔPIN SAÚDE) ====================
+// ==================== CLIENTE DA API CLOUDFLARE v2 (DÔPIN SAÚDE) ====================
 const API_BASE_URL = 'https://dopinsaude-api.pedrosindeaux.workers.dev';
 const TOKEN_KEY = 'dopin_saude_token_v1';
 
@@ -11,11 +11,8 @@ const DopinAPI = {
     localStorage.removeItem(TOKEN_KEY);
     sessionStorage.removeItem(TOKEN_KEY);
     if (!token) return;
-    if (manterSessao) {
-      localStorage.setItem(TOKEN_KEY, token);
-    } else {
-      sessionStorage.setItem(TOKEN_KEY, token);
-    }
+    if (manterSessao) localStorage.setItem(TOKEN_KEY, token);
+    else sessionStorage.setItem(TOKEN_KEY, token);
   },
 
   limparToken() {
@@ -36,83 +33,123 @@ const DopinAPI = {
     });
 
     const dados = await resp.json().catch(() => ({}));
-    if (!resp.ok) {
-      throw new Error(dados.erro || `Erro HTTP ${resp.status}`);
-    }
+    if (!resp.ok) throw new Error(dados.erro || `Erro HTTP ${resp.status}`);
     return dados;
   },
 
-  // Autenticação e Cadastro SaaS
-  registrarClinica(payload) {
-    return this.request('/auth/registrar-clinica', { method: 'POST', body: payload });
+  // Auth & Senha
+  registrarClinica(payload) { return this.request('/auth/registrar-clinica', { method: 'POST', body: payload }); },
+  login(usuario, senha) { return this.request('/auth/login', { method: 'POST', body: { usuario, senha } }); },
+  alterarSenha(payload) { return this.request('/auth/alterar-senha', { method: 'PUT', body: payload }); },
+
+  // Dados Iniciais
+  buscarDadosIniciais() { return this.request('/dados-iniciais'); },
+
+  // Atendimentos, Saídas e Aprovações Retroativas
+  criarAtendimento(payload) { return this.request('/atendimentos', { method: 'POST', body: payload }); },
+  excluirAtendimento(id) { return this.request(`/atendimentos/${encodeURIComponent(id)}`, { method: 'DELETE' }); },
+  criarSaida(payload) { return this.request('/saidas', { method: 'POST', body: payload }); },
+  excluirSaida(id) { return this.request(`/saidas/${encodeURIComponent(id)}`, { method: 'DELETE' }); },
+  listarAprovacoes() { return this.request('/aprovacoes'); },
+  decidirAprovacao(tipo, id, decisao) {
+    return this.request(`/aprovacoes/${encodeURIComponent(tipo)}/${encodeURIComponent(id)}`, {
+      method: 'POST',
+      body: { decisao }
+    });
   },
 
-  login(usuario, senha) {
-    return this.request('/auth/login', { method: 'POST', body: { usuario, senha } });
+  // Repasses & Configurações & Logo (R2)
+  registrarPagamento(payload) { return this.request('/pagamentos', { method: 'POST', body: payload }); },
+  salvarClinica(payload) { return this.request('/config/clinica', { method: 'PUT', body: payload }); },
+  uploadLogo(formData) { return this.request('/config/logo', { method: 'POST', body: formData, isFormData: true }); },
+  async buscarLogoDataUrl() {
+    const token = this.getToken();
+    const resp = await fetch(`${API_BASE_URL}/config/logo`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {}
+    });
+    if (!resp.ok) return null;
+    const blob = await resp.blob();
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result);
+      reader.readAsDataURL(blob);
+    });
+  },
+  criarUsuario(payload) { return this.request('/usuarios', { method: 'POST', body: payload }); },
+  desativarUsuario(id) { return this.request(`/usuarios/${encodeURIComponent(id)}`, { method: 'DELETE' }); },
+
+  // Pacientes & Anamnese
+  listarPacientes() { return this.request('/pacientes'); },
+  criarPaciente(payload) { return this.request('/pacientes', { method: 'POST', body: payload }); },
+  atualizarPaciente(id, payload) { return this.request(`/pacientes/${encodeURIComponent(id)}`, { method: 'PUT', body: payload }); },
+
+  // Odontograma / Procedimentos / Utilização do Orçamento
+  listarProcedimentos(pacienteId) { return this.request(`/pacientes/${encodeURIComponent(pacienteId)}/procedimentos`); },
+  criarProcedimento(pacienteId, payload) {
+    return this.request(`/pacientes/${encodeURIComponent(pacienteId)}/procedimentos`, { method: 'POST', body: payload });
+  },
+  atualizarProcedimento(pacienteId, procId, payload) {
+    return this.request(`/pacientes/${encodeURIComponent(pacienteId)}/procedimentos/${encodeURIComponent(procId)}`, {
+      method: 'PUT',
+      body: payload
+    });
+  },
+  excluirProcedimento(pacienteId, procId) {
+    return this.request(`/pacientes/${encodeURIComponent(pacienteId)}/procedimentos/${encodeURIComponent(procId)}`, {
+      method: 'DELETE'
+    });
+  },
+  utilizarProcedimento(pacienteId, procId, payload) {
+    return this.request(`/pacientes/${encodeURIComponent(pacienteId)}/procedimentos/${encodeURIComponent(procId)}/utilizar`, {
+      method: 'POST',
+      body: payload
+    });
   },
 
-  // Dados completos da clínica
-  buscarDadosIniciais() {
-    return this.request('/dados-iniciais');
+  // Pagamentos do Paciente (Orçamento / Saldo)
+  listarPagamentosPaciente(pacienteId) { return this.request(`/pacientes/${encodeURIComponent(pacienteId)}/pagamentos`); },
+  criarPagamentoPaciente(pacienteId, payload) {
+    return this.request(`/pacientes/${encodeURIComponent(pacienteId)}/pagamentos`, { method: 'POST', body: payload });
+  },
+  excluirPagamentoPaciente(pacienteId, pagId) {
+    return this.request(`/pacientes/${encodeURIComponent(pacienteId)}/pagamentos/${encodeURIComponent(pagId)}`, {
+      method: 'DELETE'
+    });
   },
 
-  // Atendimentos (Mapa Diário)
-  criarAtendimento(payload) {
-    return this.request('/atendimentos', { method: 'POST', body: payload });
+  // Evoluções Clínicas
+  listarEvolucoes(pacienteId) { return this.request(`/pacientes/${encodeURIComponent(pacienteId)}/evolucoes`); },
+  criarEvolucao(pacienteId, payload) {
+    return this.request(`/pacientes/${encodeURIComponent(pacienteId)}/evolucoes`, { method: 'POST', body: payload });
+  },
+  atualizarEvolucao(pacienteId, evolId, payload) {
+    return this.request(`/pacientes/${encodeURIComponent(pacienteId)}/evolucoes/${encodeURIComponent(evolId)}`, {
+      method: 'PUT',
+      body: payload
+    });
+  },
+  excluirEvolucao(pacienteId, evolId) {
+    return this.request(`/pacientes/${encodeURIComponent(pacienteId)}/evolucoes/${encodeURIComponent(evolId)}`, {
+      method: 'DELETE'
+    });
   },
 
-  excluirAtendimento(id) {
-    return this.request(`/atendimentos/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  // Banco de Medicamentos
+  listarMedicamentos() { return this.request('/medicamentos'); },
+  criarMedicamento(payload) { return this.request('/medicamentos', { method: 'POST', body: payload }); },
+  atualizarMedicamento(id, payload) { return this.request(`/medicamentos/${encodeURIComponent(id)}`, { method: 'PUT', body: payload }); },
+  excluirMedicamento(id) { return this.request(`/medicamentos/${encodeURIComponent(id)}`, { method: 'DELETE' }); },
+
+  // Documentos Emitidos (Snapshot histórico)
+  listarDocumentosEmitidos(pacienteId) { return this.request(`/pacientes/${encodeURIComponent(pacienteId)}/documentos-emitidos`); },
+  salvarDocumentoEmitido(pacienteId, payload) {
+    return this.request(`/pacientes/${encodeURIComponent(pacienteId)}/documentos-emitidos`, { method: 'POST', body: payload });
   },
 
-  // Saídas
-  criarSaida(payload) {
-    return this.request('/saidas', { method: 'POST', body: payload });
-  },
-
-  excluirSaida(id) {
-    return this.request(`/saidas/${encodeURIComponent(id)}`, { method: 'DELETE' });
-  },
-
-  // Pagamentos aos dentistas
-  registrarPagamento(payload) {
-    return this.request('/pagamentos', { method: 'POST', body: payload });
-  },
-
-  // Configurações e Usuários
-  salvarClinica(payload) {
-    return this.request('/config/clinica', { method: 'PUT', body: payload });
-  },
-
-  criarUsuario(payload) {
-    return this.request('/usuarios', { method: 'POST', body: payload });
-  },
-
-  desativarUsuario(id) {
-    return this.request(`/usuarios/${encodeURIComponent(id)}`, { method: 'DELETE' });
-  },
-
-  // Pacientes e Documentos (Cloudflare R2)
-  listarPacientes() {
-    return this.request('/pacientes');
-  },
-
-  criarPaciente(payload) {
-    return this.request('/pacientes', { method: 'POST', body: payload });
-  },
-
-  listarDocumentos(pacienteId) {
-    return this.request(`/documentos?paciente_id=${encodeURIComponent(pacienteId)}`);
-  },
-
-  uploadDocumento(formData) {
-    return this.request('/documentos/upload', { method: 'POST', body: formData, isFormData: true });
-  },
-
-  excluirDocumento(id) {
-    return this.request(`/documentos/${encodeURIComponent(id)}`, { method: 'DELETE' });
-  },
-
+  // Anexos Privados no R2
+  listarDocumentos(pacienteId) { return this.request(`/documentos?paciente_id=${encodeURIComponent(pacienteId)}`); },
+  uploadDocumento(formData) { return this.request('/documentos/upload', { method: 'POST', body: formData, isFormData: true }); },
+  excluirDocumento(id) { return this.request(`/documentos/${encodeURIComponent(id)}`, { method: 'DELETE' }); },
   async baixarArquivoBlob(id) {
     const token = this.getToken();
     const resp = await fetch(`${API_BASE_URL}/documentos/${encodeURIComponent(id)}/arquivo`, {

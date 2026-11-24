@@ -10,7 +10,8 @@ const DEFAULT_CONFIG = {
     cro: '',
     telefone: '',
     email: '',
-    endereco: ''
+    endereco: '',
+    logoR2Key: ''
   },
   dentistas: [],
   recepcionistas: [],
@@ -19,23 +20,23 @@ const DEFAULT_CONFIG = {
   categoriasSaida: []
 };
 
-let db = {
+window.db = {
+  dataServidor: '',
   config: structuredClone(DEFAULT_CONFIG),
   atendimentos: [],
   saidas: [],
   pagamentosDentistas: {},
-  pacientes: []
+  pacientes: [],
+  aprovacoes: { atendimentos: [], saidas: [] }
 };
 
-let pacienteSelecionadoId = null;
-let documentosPacienteAtual = [];
-
-let sessaoAtual = null;
+window.sessaoAtual = null;
+window.clinicLogoDataUrl = null;
 let abasDesbloqueadas = { geral: false, config: false };
 let abaPendenteSenha = null;
 
 // ==================== UTILITÁRIOS & SEGURANÇA ====================
-const escapeHTML = (str) =>
+window.escapeHTML = (str) =>
   String(str ?? '')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
@@ -43,16 +44,34 @@ const escapeHTML = (str) =>
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
 
-const fmtBRL = (val) =>
+window.fmtBRL = (val) =>
   Number(val || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
-const hojeISO = () => {
+window.hojeISO = () => {
   const d = new Date();
   d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
   return d.toISOString().split('T')[0];
 };
 
-const getDataAtiva = () => document.getElementById('dataAtiva')?.value || hojeISO();
+const getDataAtiva = () => document.getElementById('dataAtiva')?.value || window.hojeISO();
+
+function isDataRetroativa(dataStr) {
+  const referencia = window.db.dataServidor || window.hojeISO();
+  return Boolean(dataStr && dataStr < referencia);
+}
+
+function atualizarAlertasRetroativos() {
+  const retro = isDataRetroativa(getDataAtiva());
+  const boxMapa = document.getElementById('boxRetroMapa');
+  const inpMapa = document.getElementById('mJustificativaRetro');
+  const boxSaida = document.getElementById('boxRetroSaida');
+  const inpSaida = document.getElementById('sJustificativaRetro');
+
+  if (boxMapa) boxMapa.classList.toggle('hidden', !retro);
+  if (inpMapa) inpMapa.required = retro;
+  if (boxSaida) boxSaida.classList.toggle('hidden', !retro);
+  if (inpSaida) inpSaida.required = retro;
+}
 
 function atualizarStatusNuvem(estado, texto) {
   const badge = document.getElementById('statusConexao');
@@ -67,18 +86,61 @@ function atualizarStatusNuvem(estado, texto) {
   if (loginTxt) loginTxt.textContent = estado === 'offline' ? 'Sem conexão com a internet' : 'Nuvem Cloudflare Ativa';
 }
 
+// ==================== LOGO DA CLÍNICA (R2) ====================
+async function carregarLogoClinica() {
+  try {
+    const dataUrl = await DopinAPI.buscarLogoDataUrl();
+    window.clinicLogoDataUrl = dataUrl;
+    aplicarLogoNaInterface();
+  } catch {
+    window.clinicLogoDataUrl = null;
+  }
+}
+
+function aplicarLogoNaInterface() {
+  const preview = document.getElementById('cfgLogoPreview');
+  const placeholder = document.getElementById('cfgLogoPlaceholder');
+  const headerBadge = document.getElementById('headerLogoBadge');
+
+  if (window.clinicLogoDataUrl) {
+    if (preview) {
+      preview.src = window.clinicLogoDataUrl;
+      preview.classList.remove('hidden');
+    }
+    if (placeholder) placeholder.classList.add('hidden');
+    if (headerBadge) {
+      headerBadge.innerHTML = `<img src="${window.clinicLogoDataUrl}" alt="Logo da clínica" />`;
+    }
+  } else {
+    if (preview) preview.classList.add('hidden');
+    if (placeholder) placeholder.classList.remove('hidden');
+  }
+}
+
 // ==================== CARREGAMENTO DOS DADOS DO D1 ====================
 async function carregarDadosDaNuvem() {
   atualizarStatusNuvem('carregando', 'Sincronizando...');
   try {
-    const [res, resPac] = await Promise.all([
+    const promessas = [
       DopinAPI.buscarDadosIniciais(),
       DopinAPI.listarPacientes().catch(() => ({ pacientes: [] }))
-    ]);
-    db.pacientes = resPac.pacientes || [];
-    const c = res.clinica || {};
+    ];
+    if (window.sessaoAtual?.perfil === 'Administração') {
+      promessas.push(DopinAPI.listarAprovacoes().catch(() => ({ atendimentos: [], saidas: [] })));
+    }
 
-    db.config = {
+    const [res, resPac, resAprov] = await Promise.all(promessas);
+    window.db.dataServidor = res.data_servidor || window.hojeISO();
+    window.db.pacientes = resPac.pacientes || [];
+    if (resAprov) {
+      window.db.aprovacoes = {
+        atendimentos: resAprov.atendimentos || [],
+        saidas: resAprov.saidas || []
+      };
+    }
+
+    const c = res.clinica || {};
+    window.db.config = {
       percentualVenda: Number(c.percentual_venda ?? 5),
       clinica: {
         nome: c.nome || '',
@@ -87,7 +149,8 @@ async function carregarDadosDaNuvem() {
         cro: c.cro || '',
         telefone: c.telefone || '',
         email: c.email || '',
-        endereco: c.endereco || ''
+        endereco: c.endereco || '',
+        logoR2Key: c.logo_r2_key || ''
       },
       dentistas: (res.usuarios || []).filter((u) => u.perfil === 'Profissional'),
       recepcionistas: (res.usuarios || []).filter((u) => u.perfil === 'Recepção'),
@@ -105,9 +168,10 @@ async function carregarDadosDaNuvem() {
       categoriasSaida: (res.categoriasSaida || []).map((cat) => cat.nome)
     };
 
-    db.atendimentos = (res.atendimentos || []).map((a) => ({
+    window.db.atendimentos = (res.atendimentos || []).map((a) => ({
       id: a.id,
       data: a.data,
+      pacienteId: a.paciente_id,
       paciente: a.paciente_nome,
       procedimento: a.procedimento,
       espNome: a.especialidade_nome,
@@ -128,7 +192,7 @@ async function carregarDadosDaNuvem() {
       comissaoTotal: Number(a.comissao_total || 0)
     }));
 
-    db.saidas = (res.saidas || []).map((s) => ({
+    window.db.saidas = (res.saidas || []).map((s) => ({
       id: s.id,
       data: s.data,
       categoria: s.categoria,
@@ -139,13 +203,16 @@ async function carregarDadosDaNuvem() {
       obs: s.obs || ''
     }));
 
-    db.pagamentosDentistas = {};
+    window.db.pagamentosDentistas = {};
     (res.pagamentos || []).forEach((p) => {
-      db.pagamentosDentistas[`${p.data}_${p.dentista_id}`] = Number(p.valor_pago || 0);
+      window.db.pagamentosDentistas[`${p.data}_${p.dentista_id}`] = Number(p.valor_pago || 0);
     });
+
+    if (c.logo_r2_key) await carregarLogoClinica();
 
     atualizarCabecalhoClinica();
     popularSelects();
+    atualizarAlertasRetroativos();
     atualizarPreviewMapa();
     renderizarTudo();
     atualizarStatusNuvem('online', 'Nuvem OK');
@@ -166,23 +233,28 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const inputData = document.getElementById('dataAtiva');
   if (inputData) {
-    inputData.value = hojeISO();
-    inputData.addEventListener('change', renderizarTudo);
+    inputData.value = window.hojeISO();
+    inputData.addEventListener('change', () => {
+      atualizarAlertasRetroativos();
+      renderizarTudo();
+    });
   }
 
   configurarLogin();
   configurarCadastroClinica();
   configurarNavegacao();
   configurarModalSenha();
+  configurarSeletorPacienteMapa();
   configurarFormularios();
   configurarConexao();
+  if (window.ProntuarioModule) window.ProntuarioModule.init();
   verificarSessaoSalva();
 });
 
 function atualizarCabecalhoClinica() {
   const badge = document.getElementById('headerClinicaNome');
   if (!badge) return;
-  const nomeClinica = (db.config.clinica?.nome || '').trim();
+  const nomeClinica = (window.db.config.clinica?.nome || '').trim();
   if (nomeClinica) {
     badge.textContent = nomeClinica;
     badge.classList.remove('hidden');
@@ -190,6 +262,70 @@ function atualizarCabecalhoClinica() {
     badge.textContent = '';
     badge.classList.add('hidden');
   }
+}
+
+// ==================== SELETOR PESQUISÁVEL DE PACIENTE NO MAPA DIÁRIO (ITEM 13) ====================
+function configurarSeletorPacienteMapa() {
+  const inputBusca = document.getElementById('mPacienteBusca');
+  const inputId = document.getElementById('mPacienteId');
+  const dropdown = document.getElementById('mPacienteDropdown');
+  const hint = document.getElementById('mPacienteHint');
+  if (!inputBusca || !inputId || !dropdown) return;
+
+  const mostrarLista = () => {
+    const termo = inputBusca.value.trim().toLowerCase();
+    const filtrados = (window.db.pacientes || [])
+      .filter(
+        (p) =>
+          String(p.nome || '').toLowerCase().includes(termo) ||
+          String(p.cpf || '').toLowerCase().includes(termo)
+      )
+      .slice(0, 15);
+
+    if (filtrados.length === 0) {
+      dropdown.innerHTML =
+        '<div class="paciente-picker-item"><strong>Nenhum paciente encontrado</strong><small>Cadastre o paciente primeiro na aba Pacientes &amp; Prontuário.</small></div>';
+    } else {
+      dropdown.innerHTML = filtrados
+        .map(
+          (p) => `
+          <div class="paciente-picker-item" data-id="${window.escapeHTML(p.id)}" data-nome="${window.escapeHTML(p.nome)}">
+            <strong>${window.escapeHTML(p.nome)}</strong>
+            <small>${p.cpf ? `CPF: ${window.escapeHTML(p.cpf)}` : 'Sem CPF'}${p.telefone ? ` • ${window.escapeHTML(p.telefone)}` : ''}</small>
+          </div>`
+        )
+        .join('');
+    }
+    dropdown.classList.remove('hidden');
+  };
+
+  inputBusca.addEventListener('focus', mostrarLista);
+  inputBusca.addEventListener('input', () => {
+    inputId.value = '';
+    if (hint) {
+      hint.textContent = 'Selecione um paciente cadastrado da lista.';
+      hint.className = 'hint';
+    }
+    mostrarLista();
+  });
+
+  dropdown.addEventListener('click', (e) => {
+    const item = e.target.closest('.paciente-picker-item');
+    if (!item || !item.dataset.id) return;
+    inputId.value = item.dataset.id;
+    inputBusca.value = item.dataset.nome;
+    dropdown.classList.add('hidden');
+    if (hint) {
+      hint.textContent = '✓ Paciente vinculado com sucesso.';
+      hint.className = 'hint text-success';
+    }
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.paciente-picker-wrap')) {
+      dropdown.classList.add('hidden');
+    }
+  });
 }
 
 // ==================== CADASTRO DE NOVA CLÍNICA (SAAS) ====================
@@ -207,9 +343,7 @@ function configurarCadastroClinica() {
     modal.classList.remove('hidden');
   });
 
-  btnCancelar.addEventListener('click', () => {
-    modal.classList.add('hidden');
-  });
+  btnCancelar.addEventListener('click', () => modal.classList.add('hidden'));
 
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -238,12 +372,7 @@ function configurarCadastroClinica() {
       form.reset();
 
       await iniciarSessao(
-        {
-          usuario: nomeAdmin,
-          loginUsuario: usuario,
-          perfil: 'Administração',
-          dentistaId: null
-        },
+        { usuario: nomeAdmin, loginUsuario: usuario, perfil: 'Administração', dentistaId: null },
         true
       );
     } catch (err) {
@@ -305,7 +434,6 @@ function configurarLogin() {
     try {
       const res = await DopinAPI.login(usuarioDigitado, senhaDigitada);
       DopinAPI.setToken(res.token, manter);
-
       const u = res.usuario;
       await iniciarSessao(
         {
@@ -339,14 +467,14 @@ async function verificarSessaoSalva() {
         return;
       }
     } catch {
-      // ignora sessão inválida
+      // ignora
     }
   }
   mostrarTelaLogin();
 }
 
 async function iniciarSessao(dados, salvarNoStorage = false) {
-  sessaoAtual = dados;
+  window.sessaoAtual = dados;
   if (salvarNoStorage) {
     localStorage.setItem(SESSION_KEY, JSON.stringify(dados));
   } else if (!localStorage.getItem(SESSION_KEY)) {
@@ -357,10 +485,10 @@ async function iniciarSessao(dados, salvarNoStorage = false) {
 
   const tabMapa = document.getElementById('navTabMapa');
   const tabPacientes = document.getElementById('navTabPacientes');
-  if (tabPacientes) tabPacientes.classList.remove('hidden');
   const tabSaidas = document.getElementById('navTabSaidas');
   const tabCaixa = document.getElementById('navTabCaixa');
   const tabPagamentos = document.getElementById('navTabPagamentos');
+  const tabAprovacoes = document.getElementById('navTabAprovacoes');
   const tabGeral = document.getElementById('navTabGeral');
   const tabConfig = document.getElementById('navTabConfig');
 
@@ -368,17 +496,19 @@ async function iniciarSessao(dados, salvarNoStorage = false) {
   const thAcoesMapa = document.getElementById('thAcoesMapa');
   const hintMapaProf = document.getElementById('hintMapaProfissional');
 
+  tabPacientes?.classList.remove('hidden');
+
   if (dados.perfil === 'Profissional') {
     tabMapa.classList.remove('hidden');
     tabPagamentos.classList.remove('hidden');
     tabSaidas.classList.add('hidden');
     tabCaixa.classList.add('hidden');
+    tabAprovacoes?.classList.add('hidden');
     tabGeral.classList.add('hidden');
     tabConfig.classList.add('hidden');
 
     cardFormMapa.classList.add('hidden');
     thAcoesMapa.classList.add('hidden');
-    hintMapaProf.textContent = 'Visualização somente leitura dos seus atendimentos (venda ou execução) lançados no dia.';
     hintMapaProf.classList.remove('hidden');
     abasDesbloqueadas = { geral: false, config: false };
   } else if (dados.perfil === 'Recepção') {
@@ -386,6 +516,7 @@ async function iniciarSessao(dados, salvarNoStorage = false) {
     tabSaidas.classList.remove('hidden');
     tabCaixa.classList.remove('hidden');
     tabPagamentos.classList.add('hidden');
+    tabAprovacoes?.classList.add('hidden');
     tabGeral.classList.add('hidden');
     tabConfig.classList.add('hidden');
 
@@ -398,6 +529,7 @@ async function iniciarSessao(dados, salvarNoStorage = false) {
     tabSaidas.classList.remove('hidden');
     tabCaixa.classList.remove('hidden');
     tabPagamentos.classList.remove('hidden');
+    tabAprovacoes?.classList.remove('hidden');
     tabGeral.classList.remove('hidden');
     tabConfig.classList.remove('hidden');
 
@@ -414,7 +546,8 @@ async function iniciarSessao(dados, salvarNoStorage = false) {
 }
 
 function encerrarSessao() {
-  sessaoAtual = null;
+  window.sessaoAtual = null;
+  window.clinicLogoDataUrl = null;
   abasDesbloqueadas = { geral: false, config: false };
   DopinAPI.limparToken();
   localStorage.removeItem(SESSION_KEY);
@@ -428,34 +561,24 @@ function mostrarTelaLogin() {
   document.getElementById('loginScreen').classList.remove('hidden');
 }
 
-// ==================== CONEXÃO & BOTÃO ATUALIZAR ====================
+// ==================== CONEXÃO & NAVEGAÇÃO ====================
 function configurarConexao() {
   const atualizarRede = () => {
-    if (navigator.onLine) {
-      atualizarStatusNuvem('online', 'Nuvem OK');
-    } else {
-      atualizarStatusNuvem('offline', 'Offline');
-    }
+    atualizarStatusNuvem(navigator.onLine ? 'online' : 'offline', navigator.onLine ? 'Nuvem OK' : 'Offline');
   };
-
   window.addEventListener('online', atualizarRede);
   window.addEventListener('offline', atualizarRede);
-
   document.getElementById('btnSincronizar').addEventListener('click', async () => {
-    if (!sessaoAtual) return;
-    await carregarDadosDaNuvem();
+    if (window.sessaoAtual) await carregarDadosDaNuvem();
   });
-
   atualizarRede();
 }
 
-// ==================== NAVEGAÇÃO & PROTEÇÃO POR SENHA ====================
 function configurarNavegacao() {
   document.querySelectorAll('.tab-btn').forEach((btn) => {
     btn.addEventListener('click', () => {
       const target = btn.dataset.tab;
       const isProtected = btn.dataset.protected === 'true';
-
       if (isProtected && !abasDesbloqueadas[target]) {
         abaPendenteSenha = target;
         abrirModalSenha();
@@ -489,13 +612,12 @@ function configurarModalSenha() {
 
   const validar = async () => {
     const senhaDigitada = input.value.trim();
-    if (!sessaoAtual?.loginUsuario || !senhaDigitada) {
+    if (!window.sessaoAtual?.loginUsuario || !senhaDigitada) {
       erro.classList.remove('hidden');
       return;
     }
-
     try {
-      await DopinAPI.login(sessaoAtual.loginUsuario, senhaDigitada);
+      await DopinAPI.login(window.sessaoAtual.loginUsuario, senhaDigitada);
       abasDesbloqueadas[abaPendenteSenha] = true;
       modal.classList.add('hidden');
       erro.classList.add('hidden');
@@ -521,31 +643,31 @@ function abrirModalSenha() {
   setTimeout(() => document.getElementById('inputSenhaAcesso').focus(), 50);
 }
 
-// ==================== LISTAS SUSPENSAS E CÁLCULOS ====================
+// ==================== LISTAS SUSPENSAS E CÁLCULOS (COM EXCEÇÃO ORTO) ====================
 function popularSelects() {
-  const dentistasHTML = db.config.dentistas.length
-    ? db.config.dentistas
-        .map((dent) => `<option value="${escapeHTML(dent.id)}">${escapeHTML(dent.nome)}</option>`)
+  const dentistasHTML = window.db.config.dentistas.length
+    ? window.db.config.dentistas
+        .map((dent) => `<option value="${window.escapeHTML(dent.id)}">${window.escapeHTML(dent.nome)}</option>`)
         .join('')
     : '<option value="">Cadastre um dentista em Configurações</option>';
 
   document.getElementById('mDentistaVenda').innerHTML = dentistasHTML;
   document.getElementById('mDentistaExec').innerHTML = dentistasHTML;
   document.getElementById('sDentista').innerHTML =
-    `<option value="">-- Nenhum (Despesa Geral) --</option>${db.config.dentistas
-      .map((dent) => `<option value="${escapeHTML(dent.id)}">${escapeHTML(dent.nome)}</option>`)
+    `<option value="">-- Nenhum (Despesa Geral) --</option>${window.db.config.dentistas
+      .map((dent) => `<option value="${window.escapeHTML(dent.id)}">${window.escapeHTML(dent.nome)}</option>`)
       .join('')}`;
 
-  document.getElementById('mEspecialidade').innerHTML = db.config.especialidades
-    .map((esp) => `<option value="${escapeHTML(esp.nome)}">${escapeHTML(esp.nome)}</option>`)
+  document.getElementById('mEspecialidade').innerHTML = window.db.config.especialidades
+    .map((esp) => `<option value="${window.escapeHTML(esp.nome)}">${window.escapeHTML(esp.nome)}</option>`)
     .join('');
 
-  document.getElementById('mFormaPagamento').innerHTML = db.config.taxas
-    .map((tx) => `<option value="${escapeHTML(tx.id)}">${escapeHTML(tx.nome)} (-${tx.taxa}%)</option>`)
+  document.getElementById('mFormaPagamento').innerHTML = window.db.config.taxas
+    .map((tx) => `<option value="${window.escapeHTML(tx.id)}">${window.escapeHTML(tx.nome)} (-${tx.taxa}%)</option>`)
     .join('');
 
-  document.getElementById('sDescricao').innerHTML = db.config.categoriasSaida
-    .map((cat) => `<option value="${escapeHTML(cat)}">${escapeHTML(cat)}</option>`)
+  document.getElementById('sDescricao').innerHTML = window.db.config.categoriasSaida
+    .map((cat) => `<option value="${window.escapeHTML(cat)}">${window.escapeHTML(cat)}</option>`)
     .join('');
 
   const selectAno = document.getElementById('filtroAno');
@@ -567,20 +689,24 @@ function calcularValoresMapa() {
   const valorExecBruto = Number(document.getElementById('mValorExecBruto').value) || 0;
   const valorLab = Number(document.getElementById('mValorLab').value) || 0;
 
-  const espItem = db.config.especialidades.find((item) => item.nome === espNome) || { percentual: 0 };
-  const formaItem = db.config.taxas.find((item) => item.id === formaId) || { taxa: 0, nome: '' };
-  const percVenda = Number(db.config.percentualVenda ?? 5);
+  const espItem = window.db.config.especialidades.find((item) => item.nome === espNome) || { percentual: 0 };
+  const formaItem = window.db.config.taxas.find((item) => item.id === formaId) || { taxa: 0, nome: '' };
+  const percVenda = Number(window.db.config.percentualVenda ?? 5);
 
   const fatorLiquido = 1 - formaItem.taxa / 100;
   const valorFinal = valorPago * fatorLiquido;
   const comissaoVenda = valorFinal * (percVenda / 100);
 
-  const valorExecLiquido = valorExecBruto * fatorLiquido;
+  // Exceção da Ortodontia (Item 11): ORTO não sofre desconto de maquineta na comissão de execução
+  const espNorm = String(espNome || '').trim().toUpperCase();
+  const isOrto = espNorm === 'ORTO' || espNorm === 'ORTODONTIA';
+  const valorExecLiquido = isOrto ? valorExecBruto : valorExecBruto * fatorLiquido;
   const baseLiquidaExec = Math.max(0, valorExecLiquido - valorLab);
   const comissaoExec = baseLiquidaExec * (espItem.percentual / 100);
 
   return {
     espNome,
+    isOrto,
     formaId,
     formaNome: formaItem.nome,
     taxaAplicada: formaItem.taxa,
@@ -599,11 +725,12 @@ function calcularValoresMapa() {
 
 function atualizarPreviewMapa() {
   const resumo = calcularValoresMapa();
-  document.getElementById('prevValorFinal').textContent = fmtBRL(resumo.valorFinal);
-  document.getElementById('prevComVenda').textContent = fmtBRL(resumo.comissaoVenda);
-  document.getElementById('prevExecLiq').textContent = fmtBRL(resumo.valorExecLiquido);
-  document.getElementById('prevComExec').textContent = fmtBRL(resumo.comissaoExec);
-  document.getElementById('prevComTotal').textContent = fmtBRL(resumo.comissaoTotal);
+  document.getElementById('prevValorFinal').textContent = window.fmtBRL(resumo.valorFinal);
+  document.getElementById('prevComVenda').textContent = window.fmtBRL(resumo.comissaoVenda);
+  document.getElementById('prevExecLiq').textContent = window.fmtBRL(resumo.valorExecLiquido);
+  document.getElementById('prevComExec').textContent = window.fmtBRL(resumo.comissaoExec);
+  document.getElementById('prevComTotal').textContent = window.fmtBRL(resumo.comissaoTotal);
+  document.getElementById('prevOrtoTag')?.classList.toggle('hidden', !resumo.isOrto);
 }
 
 // ==================== EVENTOS DOS FORMULÁRIOS ====================
@@ -612,9 +739,7 @@ function configurarFormularios() {
   const campoExec = document.getElementById('mValorExecBruto');
 
   campoPago.addEventListener('input', () => {
-    if (!campoExec.dataset.editadoManualmente) {
-      campoExec.value = campoPago.value;
-    }
+    if (!campoExec.dataset.editadoManualmente) campoExec.value = campoPago.value;
     atualizarPreviewMapa();
   });
 
@@ -631,7 +756,14 @@ function configurarFormularios() {
 
   document.getElementById('formMapa').addEventListener('submit', async (evento) => {
     evento.preventDefault();
-    if (sessaoAtual && sessaoAtual.perfil === 'Profissional') return;
+    if (window.sessaoAtual?.perfil === 'Profissional') return;
+
+    const pacienteId = document.getElementById('mPacienteId').value;
+    const pacienteNome = document.getElementById('mPacienteBusca').value.trim();
+    if (!pacienteId) {
+      alert('Selecione um paciente já cadastrado na lista (digite o nome ou CPF e clique no paciente).');
+      return;
+    }
 
     const dentVenda = document.getElementById('mDentistaVenda').value;
     const dentExec = document.getElementById('mDentistaExec').value;
@@ -640,24 +772,40 @@ function configurarFormularios() {
       return;
     }
 
+    const dataAtiva = getDataAtiva();
+    const justificativaRetroativa = document.getElementById('mJustificativaRetro')?.value.trim() || '';
+    if (isDataRetroativa(dataAtiva) && !justificativaRetroativa) {
+      alert('Informe a justificativa para lançamento em data retroativa.');
+      return;
+    }
+
     const valores = calcularValoresMapa();
     const registroAtendimento = {
-      data: getDataAtiva(),
-      paciente: document.getElementById('mPaciente').value.trim(),
+      data: dataAtiva,
+      pacienteId,
+      paciente: pacienteNome,
       procedimento: document.getElementById('mProcedimento').value.trim(),
       dentistaVendaId: dentVenda,
       dentistaExecId: dentExec,
+      justificativaRetroativa,
       ...valores
     };
 
     try {
       const res = await DopinAPI.criarAtendimento(registroAtendimento);
-      db.atendimentos.unshift({ id: res.id, ...registroAtendimento });
       evento.target.reset();
+      document.getElementById('mPacienteId').value = '';
       document.getElementById('mValorLab').value = '0';
       delete campoExec.dataset.editadoManualmente;
       atualizarPreviewMapa();
-      renderizarTudo();
+
+      if (res.status_aprovacao === 'pendente') {
+        alert('Lançamento retroativo enviado para APROVAÇÃO ADMINISTRATIVA. Ele entrará nos cálculos somente após aprovado.');
+        await carregarDadosDaNuvem();
+      } else {
+        window.db.atendimentos.unshift({ id: res.id, ...registroAtendimento });
+        renderizarTudo();
+      }
     } catch (err) {
       alert(`Erro ao salvar atendimento na nuvem: ${err.message}`);
     }
@@ -671,14 +819,11 @@ function configurarFormularios() {
     const escolha = selectSaida.value;
     const isOutros = escolha === 'OUTROS';
     const isPagDentista = escolha === 'PAG. DENTISTAS';
-
     document.getElementById('boxOutros').classList.toggle('hidden', !isOutros);
     document.getElementById('boxDentistaDesconto').classList.toggle('hidden', !isPagDentista);
-
     if (inputOutrosTexto) inputOutrosTexto.required = isOutros;
     if (selectDentistaSaida) selectDentistaSaida.required = isPagDentista;
   };
-
   selectSaida.addEventListener('change', atualizarCamposSaida);
 
   document.getElementById('formSaidas').addEventListener('submit', async (evento) => {
@@ -686,28 +831,68 @@ function configurarFormularios() {
     const categoria = selectSaida.value;
     const textoOutros = inputOutrosTexto.value.trim();
     const dentistaId = selectDentistaSaida.value;
+    const dataAtiva = getDataAtiva();
+    const justificativaRetroativa = document.getElementById('sJustificativaRetro')?.value.trim() || '';
+
+    if (isDataRetroativa(dataAtiva) && !justificativaRetroativa) {
+      alert('Informe a justificativa para saída em data retroativa.');
+      return;
+    }
 
     const registroSaida = {
-      data: getDataAtiva(),
+      data: dataAtiva,
       categoria,
       descricaoFinal: categoria === 'OUTROS' && textoOutros ? `OUTROS: ${textoOutros}` : categoria,
       dentistaId: dentistaId || null,
       origem: document.getElementById('sOrigem').value,
       valor: Number(document.getElementById('sValor').value) || 0,
-      obs: document.getElementById('sObs').value.trim()
+      obs: document.getElementById('sObs').value.trim(),
+      justificativaRetroativa
     };
 
     try {
       const res = await DopinAPI.criarSaida(registroSaida);
-      db.saidas.unshift({ id: res.id, ...registroSaida });
       evento.target.reset();
       atualizarCamposSaida();
-      renderizarTudo();
+      if (res.status_aprovacao === 'pendente') {
+        alert('Saída retroativa enviada para APROVAÇÃO ADMINISTRATIVA.');
+        await carregarDadosDaNuvem();
+      } else {
+        window.db.saidas.unshift({ id: res.id, ...registroSaida });
+        renderizarTudo();
+      }
     } catch (err) {
       alert(`Erro ao salvar saída na nuvem: ${err.message}`);
     }
   });
 
+  document.getElementById('btnAtualizarAprovacoes')?.addEventListener('click', carregarDadosDaNuvem);
+
+  // Upload de Logo da Clínica (R2)
+  document.getElementById('formUploadLogo')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const arq = document.getElementById('cfgLogoArquivo')?.files?.[0];
+    if (!arq) return;
+    const btn = document.getElementById('btnEnviarLogo');
+    btn.disabled = true;
+    btn.textContent = 'Enviando...';
+    try {
+      const fd = new FormData();
+      fd.append('logo', arq);
+      await DopinAPI.uploadLogo(fd);
+      await carregarLogoClinica();
+      e.target.reset();
+      alert('Logomarca atualizada na nuvem com sucesso!');
+    } catch (err) {
+      alert(`Erro ao enviar logo: ${err.message}`);
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '<i data-lucide="image"></i> Enviar Logo';
+      if (typeof lucide !== 'undefined') lucide.createIcons();
+    }
+  });
+
+  // Dados da Clínica
   document.getElementById('formDadosClinica').addEventListener('submit', async (evento) => {
     evento.preventDefault();
     const dadosClinica = {
@@ -719,14 +904,36 @@ function configurarFormularios() {
       email: document.getElementById('cfgClinicaEmail').value.trim(),
       endereco: document.getElementById('cfgClinicaEndereco').value.trim()
     };
-
     try {
       await DopinAPI.salvarClinica(dadosClinica);
-      db.config.clinica = dadosClinica;
+      window.db.config.clinica = { ...window.db.config.clinica, ...dadosClinica };
       atualizarCabecalhoClinica();
       alert('Dados da clínica salvos na nuvem com sucesso!');
     } catch (err) {
       alert(`Erro ao salvar dados da clínica: ${err.message}`);
+    }
+  });
+
+  // Alterar Senha Administrativa (Item 15)
+  document.getElementById('formAlterarSenha')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const senha_atual = document.getElementById('cfgSenhaAtual').value;
+    const nova_senha = document.getElementById('cfgNovaSenha').value;
+    const confirmacao_senha = document.getElementById('cfgConfirmaSenha').value;
+    if (nova_senha !== confirmacao_senha) {
+      alert('A nova senha e a confirmação não coincidem.');
+      return;
+    }
+    const btn = document.getElementById('btnAlterarSenha');
+    btn.disabled = true;
+    try {
+      await DopinAPI.alterarSenha({ senha_atual, nova_senha, confirmacao_senha });
+      e.target.reset();
+      alert('Senha alterada com sucesso!');
+    } catch (err) {
+      alert(`Erro ao alterar senha: ${err.message}`);
+    } finally {
+      btn.disabled = false;
     }
   });
 
@@ -735,7 +942,6 @@ function configurarFormularios() {
     const nome = document.getElementById('cfgDentistaNome').value.trim();
     const usuario = document.getElementById('cfgDentistaUsuario').value.trim().toLowerCase();
     const senha = document.getElementById('cfgDentistaSenha').value.trim();
-
     if (!nome || !usuario || !senha) return;
     try {
       await DopinAPI.criarUsuario({ nome, usuario, senha, perfil: 'Profissional' });
@@ -751,7 +957,6 @@ function configurarFormularios() {
     const nome = document.getElementById('cfgRecepcaoNome').value.trim();
     const usuario = document.getElementById('cfgRecepcaoUsuario').value.trim().toLowerCase();
     const senha = document.getElementById('cfgRecepcaoSenha').value.trim();
-
     if (!nome || !usuario || !senha) return;
     try {
       await DopinAPI.criarUsuario({ nome, usuario, senha, perfil: 'Recepção' });
@@ -762,122 +967,45 @@ function configurarFormularios() {
     }
   });
 
-  document.getElementById('formAddEspecialidade')?.addEventListener('submit', (e) => {
-    e.preventDefault();
-    alert('A edição de especialidades na nuvem será ativada na próxima etapa.');
-  });
-
-  document.getElementById('formAddSaidaCat')?.addEventListener('submit', (e) => {
-    e.preventDefault();
-    alert('A edição de categorias de saída na nuvem será ativada na próxima etapa.');
-  });
-
   document.getElementById('btnSalvarComissaoVenda').addEventListener('click', async () => {
     const novoPerc = Number(document.getElementById('cfgComissaoVenda').value);
     const percentualVenda = Number.isNaN(novoPerc) || novoPerc < 0 ? 0 : novoPerc;
     try {
-      await DopinAPI.salvarClinica({ ...db.config.clinica, percentualVenda });
-      db.config.percentualVenda = percentualVenda;
+      await DopinAPI.salvarClinica({ ...window.db.config.clinica, percentualVenda });
+      window.db.config.percentualVenda = percentualVenda;
       atualizarPreviewMapa();
       alert(`Comissão de venda atualizada para ${percentualVenda}%!`);
     } catch (err) {
       alert(`Erro ao atualizar comissão: ${err.message}`);
     }
   });
-
-  document.getElementById('formPaciente')?.addEventListener('submit', async (evento) => {
-    evento.preventDefault();
-    const btn = document.getElementById('btnSalvarPaciente');
-    const nome = document.getElementById('pacNome').value.trim();
-    const cpf = document.getElementById('pacCpf').value.trim();
-    const telefone = document.getElementById('pacTelefone').value.trim();
-    if (!nome) return;
-
-    btn.disabled = true;
-    btn.textContent = 'Salvando...';
-    try {
-      const res = await DopinAPI.criarPaciente({ nome, cpf, telefone });
-      evento.target.reset();
-      const lista = await DopinAPI.listarPacientes();
-      db.pacientes = lista.pacientes || [];
-      renderizarPacientes();
-      if (res.id) await selecionarPaciente(res.id);
-    } catch (err) {
-      alert(`Erro ao cadastrar paciente: ${err.message}`);
-    } finally {
-      btn.disabled = false;
-      btn.innerHTML = '<i data-lucide="plus-circle"></i> Cadastrar Paciente';
-      if (typeof lucide !== 'undefined') lucide.createIcons();
-    }
-  });
-
-  document.getElementById('buscaPaciente')?.addEventListener('input', renderizarPacientes);
-
-  document.getElementById('formUploadDocumento')?.addEventListener('submit', async (evento) => {
-    evento.preventDefault();
-    if (!pacienteSelecionadoId) {
-      alert('Selecione um paciente primeiro.');
-      return;
-    }
-
-    const inputArq = document.getElementById('docArquivo');
-    const arquivo = inputArq?.files?.[0];
-    if (!arquivo) return;
-
-    const btn = document.getElementById('btnEnviarDocumento');
-    btn.disabled = true;
-    btn.textContent = 'Enviando...';
-
-    try {
-      const fd = new FormData();
-      fd.append('arquivo', arquivo);
-      fd.append('paciente_id', pacienteSelecionadoId);
-      fd.append('categoria', document.getElementById('docCategoria').value);
-
-      await DopinAPI.uploadDocumento(fd);
-      evento.target.reset();
-      await carregarDocumentosPaciente(pacienteSelecionadoId);
-    } catch (err) {
-      alert(`Erro ao enviar arquivo: ${err.message}`);
-    } finally {
-      btn.disabled = false;
-      btn.innerHTML = '<i data-lucide="upload-cloud"></i> Enviar Arquivo Seguro';
-      if (typeof lucide !== 'undefined') lucide.createIcons();
-    }
-  });
-
-  const btnSalvarSistema = document.getElementById('btnSalvarSistema');
-  if (btnSalvarSistema) {
-    btnSalvarSistema.addEventListener('click', () => {
-      alert('O sistema já está conectado automaticamente à nuvem Cloudflare (D1 + R2).');
-    });
-  }
 }
 
-// ==================== RENDERIZAÇÃO DAS ABAS OPERACIONAIS ====================
+// ==================== RENDERIZAÇÃO GERAL ====================
 function renderizarTudo() {
   renderizarMapa();
-  renderizarPacientes();
+  if (window.ProntuarioModule) window.ProntuarioModule.renderizarListaPacientes();
   renderizarSaidas();
   renderizarDiarioCaixa();
   renderizarPagamentosDentistas();
+  renderizarAprovacoes();
   if (abasDesbloqueadas.geral) renderizarGeral();
   if (abasDesbloqueadas.config) renderizarConfig();
 }
 
 function nomeDentista(dentistaId) {
-  const encontrado = db.config.dentistas.find((item) => item.id === dentistaId);
+  const encontrado = window.db.config.dentistas.find((item) => item.id === dentistaId);
   return encontrado ? encontrado.nome : 'Removido';
 }
 
 function renderizarMapa() {
   const dataSelecionada = getDataAtiva();
-  const modoLeitura = sessaoAtual && sessaoAtual.perfil === 'Profissional';
+  const modoLeitura = window.sessaoAtual?.perfil === 'Profissional';
 
-  const registrosDia = db.atendimentos.filter((item) => {
+  const registrosDia = window.db.atendimentos.filter((item) => {
     if (item.data !== dataSelecionada) return false;
-    if (modoLeitura && sessaoAtual.dentistaId) {
-      return item.dentistaVendaId === sessaoAtual.dentistaId || item.dentistaExecId === sessaoAtual.dentistaId;
+    if (modoLeitura && window.sessaoAtual.dentistaId) {
+      return item.dentistaVendaId === window.sessaoAtual.dentistaId || item.dentistaExecId === window.sessaoAtual.dentistaId;
     }
     return true;
   });
@@ -889,19 +1017,18 @@ function renderizarMapa() {
     .map((atend) => {
       const colunaAcao = modoLeitura
         ? ''
-        : `<td><button type="button" class="btn-danger-sm" onclick="excluirAtendimento('${escapeHTML(atend.id)}')">Excluir</button></td>`;
-
+        : `<td><button type="button" class="btn-danger-sm" onclick="excluirAtendimento('${window.escapeHTML(atend.id)}')">Excluir</button></td>`;
       return `
       <tr>
-        <td><strong>${escapeHTML(atend.paciente)}</strong></td>
-        <td>${escapeHTML(atend.procedimento)}<br><small class="hint">${escapeHTML(atend.espNome)}</small></td>
-        <td>${escapeHTML(atend.formaNome)}<br><small class="hint">Taxa: ${Number(atend.taxaAplicada) || 0}%</small></td>
-        <td>${fmtBRL(atend.valorPago)}</td>
-        <td><strong>${fmtBRL(atend.valorFinal)}</strong></td>
-        <td>${escapeHTML(nomeDentista(atend.dentistaVendaId))}<br><span class="text-success">${fmtBRL(atend.comissaoVenda)}</span></td>
-        <td>${fmtBRL(atend.valorExecLiquido)}</td>
-        <td>${fmtBRL(atend.valorLab)}</td>
-        <td>${escapeHTML(nomeDentista(atend.dentistaExecId))}<br><span class="text-success">${fmtBRL(atend.comissaoExec)}</span></td>
+        <td><strong>${window.escapeHTML(atend.paciente)}</strong></td>
+        <td>${window.escapeHTML(atend.procedimento)}<br><small class="hint">${window.escapeHTML(atend.espNome)}</small></td>
+        <td>${window.escapeHTML(atend.formaNome)}<br><small class="hint">Taxa: ${Number(atend.taxaAplicada) || 0}%</small></td>
+        <td>${window.fmtBRL(atend.valorPago)}</td>
+        <td><strong>${window.fmtBRL(atend.valorFinal)}</strong></td>
+        <td>${window.escapeHTML(nomeDentista(atend.dentistaVendaId))}<br><span class="text-success">${window.fmtBRL(atend.comissaoVenda)}</span></td>
+        <td>${window.fmtBRL(atend.valorExecLiquido)}</td>
+        <td>${window.fmtBRL(atend.valorLab)}</td>
+        <td>${window.escapeHTML(nomeDentista(atend.dentistaExecId))}<br><span class="text-success">${window.fmtBRL(atend.comissaoExec)}</span></td>
         ${colunaAcao}
       </tr>`;
     })
@@ -909,12 +1036,11 @@ function renderizarMapa() {
 }
 
 window.excluirAtendimento = async function (atendimentoId) {
-  if (sessaoAtual && sessaoAtual.perfil === 'Profissional') return;
+  if (window.sessaoAtual?.perfil === 'Profissional') return;
   if (!confirm('Deseja excluir este atendimento da nuvem?')) return;
-
   try {
     await DopinAPI.excluirAtendimento(atendimentoId);
-    db.atendimentos = db.atendimentos.filter((item) => item.id !== atendimentoId);
+    window.db.atendimentos = window.db.atendimentos.filter((item) => item.id !== atendimentoId);
     renderizarTudo();
   } catch (err) {
     alert(`Erro ao excluir atendimento: ${err.message}`);
@@ -923,7 +1049,7 @@ window.excluirAtendimento = async function (atendimentoId) {
 
 function renderizarSaidas() {
   const dataSelecionada = getDataAtiva();
-  const saidasDia = db.saidas.filter((item) => item.data === dataSelecionada);
+  const saidasDia = window.db.saidas.filter((item) => item.data === dataSelecionada);
   const corpoTabela = document.querySelector('#tabelaSaidas tbody');
   if (!corpoTabela) return;
 
@@ -932,171 +1058,190 @@ function renderizarSaidas() {
     .map((saida) => {
       somaSaidas += Number(saida.valor) || 0;
       const dentistaLabel = saida.dentistaId ? nomeDentista(saida.dentistaId) : '-';
-
       return `
       <tr>
-        <td><strong>${escapeHTML(saida.descricaoFinal)}</strong></td>
-        <td>${escapeHTML(dentistaLabel)}</td>
-        <td>${escapeHTML(saida.origem)}</td>
-        <td class="text-danger"><strong>${fmtBRL(saida.valor)}</strong></td>
-        <td>${escapeHTML(saida.obs || '-')}</td>
-        <td><button type="button" class="btn-danger-sm" onclick="excluirSaida('${escapeHTML(saida.id)}')">Excluir</button></td>
+        <td><strong>${window.escapeHTML(saida.descricaoFinal)}</strong></td>
+        <td>${window.escapeHTML(dentistaLabel)}</td>
+        <td>${window.escapeHTML(saida.origem)}</td>
+        <td class="text-danger"><strong>${window.fmtBRL(saida.valor)}</strong></td>
+        <td>${window.escapeHTML(saida.obs || '-')}</td>
+        <td><button type="button" class="btn-danger-sm" onclick="excluirSaida('${window.escapeHTML(saida.id)}')">Excluir</button></td>
       </tr>`;
     })
     .join('');
-
-  document.getElementById('saidasTotalDia').textContent = fmtBRL(somaSaidas);
+  document.getElementById('saidasTotalDia').textContent = window.fmtBRL(somaSaidas);
 }
 
 window.excluirSaida = async function (saidaId) {
   if (!confirm('Deseja excluir esta saída da nuvem?')) return;
-
   try {
     await DopinAPI.excluirSaida(saidaId);
-    db.saidas = db.saidas.filter((item) => item.id !== saidaId);
+    window.db.saidas = window.db.saidas.filter((item) => item.id !== saidaId);
     renderizarTudo();
   } catch (err) {
     alert(`Erro ao excluir saída: ${err.message}`);
   }
 };
 
+// ==================== APROVAÇÕES RETROATIVAS ====================
+function renderizarAprovacoes() {
+  const atendPend = window.db.aprovacoes?.atendimentos || [];
+  const saidasPend = window.db.aprovacoes?.saidas || [];
+  const total = atendPend.length + saidasPend.length;
+
+  const badge = document.getElementById('badgeAprovacoes');
+  if (badge) {
+    badge.textContent = total;
+    badge.classList.toggle('hidden', total === 0);
+  }
+
+  const tbodyAtend = document.getElementById('listaAprovAtendBody');
+  if (tbodyAtend) {
+    tbodyAtend.innerHTML = atendPend.length
+      ? atendPend
+          .map(
+            (a) => `
+          <tr>
+            <td><strong>${window.escapeHTML(a.data)}</strong></td>
+            <td>${window.escapeHTML(a.paciente_nome)}</td>
+            <td>${window.escapeHTML(a.procedimento)}</td>
+            <td><strong>${window.fmtBRL(a.valor_pago)}</strong></td>
+            <td>${window.escapeHTML(a.criado_por_nome || '-')}<br><small class="hint">${window.escapeHTML(a.criado_em || '')}</small></td>
+            <td>${window.escapeHTML(a.justificativa_retroativa || '-')}</td>
+            <td class="item-actions">
+              <button type="button" class="btn-success-sm" onclick="decidirAprovacao('atendimento','${window.escapeHTML(a.id)}','aprovado')">Aprovar</button>
+              <button type="button" class="btn-danger-sm" onclick="decidirAprovacao('atendimento','${window.escapeHTML(a.id)}','rejeitado')">Rejeitar</button>
+            </td>
+          </tr>`
+          )
+          .join('')
+      : '<tr><td colspan="7">Nenhum atendimento retroativo aguardando aprovação.</td></tr>';
+  }
+
+  const tbodySaida = document.getElementById('listaAprovSaidaBody');
+  if (tbodySaida) {
+    tbodySaida.innerHTML = saidasPend.length
+      ? saidasPend
+          .map(
+            (s) => `
+          <tr>
+            <td><strong>${window.escapeHTML(s.data)}</strong></td>
+            <td>${window.escapeHTML(s.descricao_final)}</td>
+            <td>${window.escapeHTML(s.origem)}</td>
+            <td class="text-danger"><strong>${window.fmtBRL(s.valor)}</strong></td>
+            <td>${window.escapeHTML(s.criado_por_nome || '-')}<br><small class="hint">${window.escapeHTML(s.criado_em || '')}</small></td>
+            <td>${window.escapeHTML(s.justificativa_retroativa || '-')}</td>
+            <td class="item-actions">
+              <button type="button" class="btn-success-sm" onclick="decidirAprovacao('saida','${window.escapeHTML(s.id)}','aprovado')">Aprovar</button>
+              <button type="button" class="btn-danger-sm" onclick="decidirAprovacao('saida','${window.escapeHTML(s.id)}','rejeitado')">Rejeitar</button>
+            </td>
+          </tr>`
+          )
+          .join('')
+      : '<tr><td colspan="7">Nenhuma saída retroativa aguardando aprovação.</td></tr>';
+  }
+}
+
+window.decidirAprovacao = async function (tipo, id, decisao) {
+  const verbo = decisao === 'aprovado' ? 'aprovar' : 'rejeitar';
+  if (!confirm(`Deseja realmente ${verbo} este lançamento retroativo?`)) return;
+  try {
+    await DopinAPI.decidirAprovacao(tipo, id, decisao);
+    await carregarDadosDaNuvem();
+  } catch (err) {
+    alert(`Erro ao processar aprovação: ${err.message}`);
+  }
+};
+
+// ==================== DIÁRIO DE CAIXA, REPASSES, GERAL E CONFIG ====================
 function renderizarDiarioCaixa() {
   const dataSelecionada = getDataAtiva();
-  const atendimentosDia = db.atendimentos.filter((item) => item.data === dataSelecionada);
-  const saidasDia = db.saidas.filter((item) => item.data === dataSelecionada);
+  const atendimentosDia = window.db.atendimentos.filter((item) => item.data === dataSelecionada);
+  const saidasDia = window.db.saidas.filter((item) => item.data === dataSelecionada);
 
-  let totalBruto = 0;
-  let totalLiquido = 0;
-  let entradasDinheiro = 0;
+  let totalBruto = 0, totalLiquido = 0, entradasDinheiro = 0;
   const resumoModalidades = {};
 
   atendimentosDia.forEach((atend) => {
     totalBruto += Number(atend.valorPago) || 0;
     totalLiquido += Number(atend.valorFinal) || 0;
-
-    if (atend.formaId === 'dinheiro') {
-      entradasDinheiro += Number(atend.valorPago) || 0;
-    }
-
-    if (!resumoModalidades[atend.formaNome]) {
-      resumoModalidades[atend.formaNome] = { bruto: 0, liquido: 0 };
-    }
+    if (atend.formaId === 'dinheiro') entradasDinheiro += Number(atend.valorPago) || 0;
+    if (!resumoModalidades[atend.formaNome]) resumoModalidades[atend.formaNome] = { bruto: 0, liquido: 0 };
     resumoModalidades[atend.formaNome].bruto += Number(atend.valorPago) || 0;
     resumoModalidades[atend.formaNome].liquido += Number(atend.valorFinal) || 0;
   });
 
-  const saidasGaveta = saidasDia
-    .filter((s) => s.origem === 'Gaveta')
-    .reduce((soma, s) => soma + (Number(s.valor) || 0), 0);
+  const saidasGaveta = saidasDia.filter((s) => s.origem === 'Gaveta').reduce((soma, s) => soma + (Number(s.valor) || 0), 0);
+  const saidasReais = saidasDia.filter((s) => s.origem !== 'Desconto Produção').reduce((soma, s) => soma + (Number(s.valor) || 0), 0);
 
-  const saidasReais = saidasDia
-    .filter((s) => s.origem !== 'Desconto Produção')
-    .reduce((soma, s) => soma + (Number(s.valor) || 0), 0);
-
-  document.getElementById('cxBruto').textContent = fmtBRL(totalBruto);
-  document.getElementById('cxLiquido').textContent = fmtBRL(totalLiquido);
-  document.getElementById('cxGaveta').textContent = fmtBRL(entradasDinheiro - saidasGaveta);
-  document.getElementById('cxSaidas').textContent = fmtBRL(saidasReais);
-
-  const linhasModalidades = Object.entries(resumoModalidades)
-    .map(
-      ([modalidade, vals]) =>
-        `<tr><td>${escapeHTML(modalidade)}</td><td>${fmtBRL(vals.bruto)}</td><td><strong>${fmtBRL(vals.liquido)}</strong></td></tr>`
-    )
-    .join('');
+  document.getElementById('cxBruto').textContent = window.fmtBRL(totalBruto);
+  document.getElementById('cxLiquido').textContent = window.fmtBRL(totalLiquido);
+  document.getElementById('cxGaveta').textContent = window.fmtBRL(entradasDinheiro - saidasGaveta);
+  document.getElementById('cxSaidas').textContent = window.fmtBRL(saidasReais);
 
   document.getElementById('cxModalidadesBody').innerHTML =
-    linhasModalidades || '<tr><td colspan="3">Sem movimentação nesta data.</td></tr>';
+    Object.entries(resumoModalidades)
+      .map(([m, vals]) => `<tr><td>${window.escapeHTML(m)}</td><td>${window.fmtBRL(vals.bruto)}</td><td><strong>${window.fmtBRL(vals.liquido)}</strong></td></tr>`)
+      .join('') || '<tr><td colspan="3">Sem movimentação nesta data.</td></tr>';
 
   const acumuladoCredito = {};
-  db.atendimentos
-    .filter((atend) => String(atend.formaId || '').startsWith('credito'))
-    .forEach((atend) => {
-      if (!acumuladoCredito[atend.formaNome]) {
-        acumuladoCredito[atend.formaNome] = { qtd: 0, total: 0 };
-      }
-      acumuladoCredito[atend.formaNome].qtd += 1;
-      acumuladoCredito[atend.formaNome].total += Number(atend.valorPago) || 0;
+  window.db.atendimentos
+    .filter((a) => String(a.formaId || '').startsWith('credito'))
+    .forEach((a) => {
+      if (!acumuladoCredito[a.formaNome]) acumuladoCredito[a.formaNome] = { qtd: 0, total: 0 };
+      acumuladoCredito[a.formaNome].qtd += 1;
+      acumuladoCredito[a.formaNome].total += Number(a.valorPago) || 0;
     });
 
-  const linhasCredito = Object.entries(acumuladoCredito)
-    .sort((a, b) => b[1].qtd - a[1].qtd)
-    .map(
-      ([modalidade, dados]) =>
-        `<tr><td><strong>${escapeHTML(modalidade)}</strong></td><td>${dados.qtd} vendas</td><td>${fmtBRL(dados.total)}</td></tr>`
-    )
-    .join('');
-
   document.getElementById('cxRankingCreditoBody').innerHTML =
-    linhasCredito || '<tr><td colspan="3">Nenhuma venda no crédito registrada ainda.</td></tr>';
+    Object.entries(acumuladoCredito)
+      .sort((a, b) => b[1].qtd - a[1].qtd)
+      .map(([m, d]) => `<tr><td><strong>${window.escapeHTML(m)}</strong></td><td>${d.qtd} vendas</td><td>${window.fmtBRL(d.total)}</td></tr>`)
+      .join('') || '<tr><td colspan="3">Nenhuma venda no crédito registrada ainda.</td></tr>';
 }
 
 function renderizarPagamentosDentistas() {
   const dataSelecionada = getDataAtiva();
-  const atendimentosDia = db.atendimentos.filter((item) => item.data === dataSelecionada);
-  const saidasDia = db.saidas.filter((item) => item.data === dataSelecionada);
+  const atendimentosDia = window.db.atendimentos.filter((item) => item.data === dataSelecionada);
+  const saidasDia = window.db.saidas.filter((item) => item.data === dataSelecionada);
   const corpoTabela = document.querySelector('#tabelaPagamentos tbody');
   if (!corpoTabela) return;
 
-  const isProfissional = sessaoAtual && sessaoAtual.perfil === 'Profissional';
-  const tituloEl = document.getElementById('tituloPagamentosDentista');
-  const hintEl = document.getElementById('hintPagamentosDentista');
-
-  if (isProfissional) {
-    tituloEl.textContent = `Minha Produção & Repasse — ${sessaoAtual.usuario}`;
-    hintEl.textContent = 'Visualização individual da sua produção e repasses do dia.';
-  } else {
-    tituloEl.textContent = 'Fechamento & Repasse aos Dentistas (Dia)';
-    hintEl.textContent = 'Preencha o valor pago no dia. O sistema impede saldo negativo.';
-  }
+  const isProfissional = window.sessaoAtual?.perfil === 'Profissional';
+  document.getElementById('tituloPagamentosDentista').textContent = isProfissional
+    ? `Minha Produção & Repasse — ${window.sessaoAtual.usuario}`
+    : 'Fechamento & Repasse aos Dentistas (Dia)';
 
   const dentistasExibidos = isProfissional
-    ? db.config.dentistas.filter((d) => d.id === sessaoAtual.dentistaId)
-    : db.config.dentistas;
+    ? window.db.config.dentistas.filter((d) => d.id === window.sessaoAtual.dentistaId)
+    : window.db.config.dentistas;
 
   corpoTabela.innerHTML = dentistasExibidos
     .map((dent) => {
-      const totalVendido = atendimentosDia
-        .filter((a) => a.dentistaVendaId === dent.id)
-        .reduce((soma, a) => soma + (Number(a.valorFinal) || 0), 0);
-
-      const comissaoVenda = atendimentosDia
-        .filter((a) => a.dentistaVendaId === dent.id)
-        .reduce((soma, a) => soma + (Number(a.comissaoVenda) || 0), 0);
-
-      const comissaoExec = atendimentosDia
-        .filter((a) => a.dentistaExecId === dent.id)
-        .reduce((soma, a) => soma + (Number(a.comissaoExec) || 0), 0);
-
+      const totalVendido = atendimentosDia.filter((a) => a.dentistaVendaId === dent.id).reduce((s, a) => s + (Number(a.valorFinal) || 0), 0);
+      const comissaoVenda = atendimentosDia.filter((a) => a.dentistaVendaId === dent.id).reduce((s, a) => s + (Number(a.comissaoVenda) || 0), 0);
+      const comissaoExec = atendimentosDia.filter((a) => a.dentistaExecId === dent.id).reduce((s, a) => s + (Number(a.comissaoExec) || 0), 0);
       const producaoBruta = comissaoVenda + comissaoExec;
-
-      const descontosDentista = saidasDia
-        .filter((s) => s.dentistaId === dent.id)
-        .reduce((soma, s) => soma + (Number(s.valor) || 0), 0);
-
+      const descontosDentista = saidasDia.filter((s) => s.dentistaId === dent.id).reduce((s, a) => s + (Number(a.valor) || 0), 0);
       const liquidoReceber = Math.max(0, producaoBruta - descontosDentista);
-      const chavePagamento = `${dataSelecionada}_${dent.id}`;
-      const valorPago = Number(db.pagamentosDentistas[chavePagamento]) || 0;
+      const valorPago = Number(window.db.pagamentosDentistas[`${dataSelecionada}_${dent.id}`]) || 0;
       const saldoRestante = Math.max(0, liquidoReceber - valorPago);
 
       const celulaPago = isProfissional
-        ? `<strong>${fmtBRL(valorPago)}</strong>`
-        : `<input type="number" step="0.01" min="0" max="${liquidoReceber.toFixed(2)}"
-            value="${valorPago}"
-            onchange="registrarPagamentoDentista('${escapeHTML(dent.id)}', this.value, ${liquidoReceber})"
-            style="width: 110px;" />`;
+        ? `<strong>${window.fmtBRL(valorPago)}</strong>`
+        : `<input type="number" step="0.01" min="0" max="${liquidoReceber.toFixed(2)}" value="${valorPago}" onchange="registrarPagamentoDentista('${window.escapeHTML(dent.id)}', this.value, ${liquidoReceber})" style="width: 110px;" />`;
 
       return `
       <tr>
-        <td><strong>${escapeHTML(dent.nome)}</strong><br><small class="hint">@${escapeHTML(dent.usuario)}</small></td>
-        <td>${fmtBRL(totalVendido)}</td>
-        <td>${fmtBRL(comissaoVenda)}</td>
-        <td>${fmtBRL(comissaoExec)}</td>
-        <td><strong>${fmtBRL(producaoBruta)}</strong></td>
-        <td class="text-danger">${fmtBRL(descontosDentista)}</td>
-        <td><strong>${fmtBRL(liquidoReceber)}</strong></td>
+        <td><strong>${window.escapeHTML(dent.nome)}</strong><br><small class="hint">@${window.escapeHTML(dent.usuario)}</small></td>
+        <td>${window.fmtBRL(totalVendido)}</td>
+        <td>${window.fmtBRL(comissaoVenda)}</td>
+        <td>${window.fmtBRL(comissaoExec)}</td>
+        <td><strong>${window.fmtBRL(producaoBruta)}</strong></td>
+        <td class="text-danger">${window.fmtBRL(descontosDentista)}</td>
+        <td><strong>${window.fmtBRL(liquidoReceber)}</strong></td>
         <td>${celulaPago}</td>
-        <td class="${saldoRestante > 0 ? 'text-danger' : 'text-success'}"><strong>${fmtBRL(saldoRestante)}</strong></td>
+        <td class="${saldoRestante > 0 ? 'text-danger' : 'text-success'}"><strong>${window.fmtBRL(saldoRestante)}</strong></td>
       </tr>`;
     })
     .join('');
@@ -1104,436 +1249,253 @@ function renderizarPagamentosDentistas() {
 
 window.registrarPagamentoDentista = async function (dentistaId, valorDigitado, tetoMaximo) {
   const dataSelecionada = getDataAtiva();
-  let valorNumerico = Number(valorDigitado) || 0;
-  if (valorNumerico < 0) valorNumerico = 0;
-
+  let valorNumerico = Math.max(0, Number(valorDigitado) || 0);
   if (valorNumerico > tetoMaximo) {
-    alert(
-      `O valor pago (${fmtBRL(valorNumerico)}) não pode ser maior que o total a receber (${fmtBRL(tetoMaximo)}) para não gerar saldo negativo.`
-    );
+    alert(`O valor pago (${window.fmtBRL(valorNumerico)}) não pode exceder o total a receber (${window.fmtBRL(tetoMaximo)}).`);
     valorNumerico = tetoMaximo;
   }
-
   try {
     await DopinAPI.registrarPagamento({ data: dataSelecionada, dentistaId, valorPago: valorNumerico });
-    db.pagamentosDentistas[`${dataSelecionada}_${dentistaId}`] = valorNumerico;
+    window.db.pagamentosDentistas[`${dataSelecionada}_${dentistaId}`] = valorNumerico;
     renderizarPagamentosDentistas();
   } catch (err) {
     alert(`Erro ao registrar pagamento: ${err.message}`);
   }
 };
 
-// ==================== PAINEL GERENCIAL ANUAL ====================
 window.abrirDemonstrativoDoMes = function (mesNumero) {
   const seletorMes = document.getElementById('filtroMesDemo');
   if (seletorMes) {
     seletorMes.value = mesNumero;
-    const anoSelecionado = document.getElementById('filtroAno')?.value || String(new Date().getFullYear());
-    renderizarDemonstrativoMensal(anoSelecionado);
+    renderizarDemonstrativoMensal(document.getElementById('filtroAno')?.value || String(new Date().getFullYear()));
     document.getElementById('cardDemonstrativoMensal')?.scrollIntoView({ behavior: 'smooth' });
   }
 };
 
 function renderizarGeral() {
-  const seletorAno = document.getElementById('filtroAno');
-  const anoSelecionado = seletorAno?.value || String(new Date().getFullYear());
+  const anoSelecionado = document.getElementById('filtroAno')?.value || String(new Date().getFullYear());
   const rotulosMeses = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
 
-  const atendimentosAno = db.atendimentos.filter((item) => String(item.data || '').startsWith(anoSelecionado));
-  const saidasAno = db.saidas.filter((item) => String(item.data || '').startsWith(anoSelecionado));
-  const saidasOperacionaisAno = saidasAno.filter((item) => item.origem !== 'Desconto Produção');
+  const atendimentosAno = window.db.atendimentos.filter((i) => String(i.data || '').startsWith(anoSelecionado));
+  const saidasAno = window.db.saidas.filter((i) => String(i.data || '').startsWith(anoSelecionado));
+  const saidasOpAno = saidasAno.filter((i) => i.origem !== 'Desconto Produção');
 
-  let receitaBrutaTotal = 0;
-  let receitaLiquidaTotal = 0;
-  let custoLaboratorioTotal = 0;
-
-  atendimentosAno.forEach((item) => {
-    receitaBrutaTotal += Number(item.valorPago) || 0;
-    receitaLiquidaTotal += Number(item.valorFinal) || 0;
-    custoLaboratorioTotal += Number(item.valorLab) || 0;
-  });
-
-  const despesaOperacionalTotal = saidasOperacionaisAno.reduce((acc, item) => acc + (Number(item.valor) || 0), 0);
-  const taxasMaquinetaTotal = Math.max(0, receitaBrutaTotal - receitaLiquidaTotal);
-  const lucroAnual = receitaLiquidaTotal - despesaOperacionalTotal;
+  const receitaBrutaTotal = atendimentosAno.reduce((s, i) => s + (Number(i.valorPago) || 0), 0);
+  const receitaLiquidaTotal = atendimentosAno.reduce((s, i) => s + (Number(i.valorFinal) || 0), 0);
+  const custoLabTotal = atendimentosAno.reduce((s, i) => s + (Number(i.valorLab) || 0), 0);
+  const despesaOpTotal = saidasOpAno.reduce((s, i) => s + (Number(i.valor) || 0), 0);
+  const taxasTotal = Math.max(0, receitaBrutaTotal - receitaLiquidaTotal);
+  const lucroAnual = receitaLiquidaTotal - despesaOpTotal;
   const margemLucro = receitaLiquidaTotal > 0 ? (lucroAnual / receitaLiquidaTotal) * 100 : 0;
   const ticketMedio = atendimentosAno.length > 0 ? receitaBrutaTotal / atendimentosAno.length : 0;
 
-  document.getElementById('kpiAnualLiquido').textContent = fmtBRL(receitaLiquidaTotal);
-  document.getElementById('kpiAnualBrutoSub').textContent = `Bruto: ${fmtBRL(receitaBrutaTotal)}`;
-
+  document.getElementById('kpiAnualLiquido').textContent = window.fmtBRL(receitaLiquidaTotal);
+  document.getElementById('kpiAnualBrutoSub').textContent = `Bruto: ${window.fmtBRL(receitaBrutaTotal)}`;
   const elLucro = document.getElementById('kpiAnualLucro');
-  elLucro.textContent = fmtBRL(lucroAnual);
+  elLucro.textContent = window.fmtBRL(lucroAnual);
   elLucro.className = lucroAnual >= 0 ? 'text-success' : 'text-danger';
   document.getElementById('kpiAnualMargem').textContent = `Margem: ${margemLucro.toFixed(1)}%`;
-
-  document.getElementById('kpiAnualTaxas').textContent = fmtBRL(taxasMaquinetaTotal);
-  document.getElementById('kpiAnualTicket').textContent = fmtBRL(ticketMedio);
+  document.getElementById('kpiAnualTaxas').textContent = window.fmtBRL(taxasTotal);
+  document.getElementById('kpiAnualTicket').textContent = window.fmtBRL(ticketMedio);
   document.getElementById('kpiAnualAtendimentos').textContent = `${atendimentosAno.length} atendimentos no ano`;
-  document.getElementById('kpiAnualLab').textContent = fmtBRL(custoLaboratorioTotal);
+  document.getElementById('kpiAnualLab').textContent = window.fmtBRL(custoLabTotal);
 
   const resumoMensal = [];
-  let maiorValorGrafico = 1;
-  let totalDinheiroAno = 0, totalPixAno = 0, totalDebitoAno = 0, totalCreditoAno = 0;
+  let maiorValor = 1, totDin = 0, totPix = 0, totDeb = 0, totCred = 0;
 
   for (let idx = 0; idx < 12; idx++) {
     const mesNumero = String(idx + 1).padStart(2, '0');
-    const prefixoMes = `${anoSelecionado}-${mesNumero}`;
-
-    const atendMes = atendimentosAno.filter((a) => String(a.data || '').startsWith(prefixoMes));
-    const saidasMes = saidasOperacionaisAno.filter((s) => String(s.data || '').startsWith(prefixoMes));
-
-    const liquidoMes = atendMes.reduce((s, a) => s + (Number(a.valorFinal) || 0), 0);
-    const despesasMes = saidasMes.reduce((s, item) => s + (Number(item.valor) || 0), 0);
-    const resultadoMes = liquidoMes - despesasMes;
-
-    const dinheiroMes = atendMes.filter((a) => a.formaId === 'dinheiro').reduce((s, a) => s + (Number(a.valorFinal) || 0), 0);
-    const pixMes = atendMes.filter((a) => a.formaId === 'pix').reduce((s, a) => s + (Number(a.valorFinal) || 0), 0);
-    const debitoMes = atendMes.filter((a) => a.formaId === 'debito').reduce((s, a) => s + (Number(a.valorFinal) || 0), 0);
-    const creditoMes = atendMes.filter((a) => String(a.formaId || '').startsWith('credito')).reduce((s, a) => s + (Number(a.valorFinal) || 0), 0);
-
-    totalDinheiroAno += dinheiroMes;
-    totalPixAno += pixMes;
-    totalDebitoAno += debitoMes;
-    totalCreditoAno += creditoMes;
-
-    if (liquidoMes > maiorValorGrafico) maiorValorGrafico = liquidoMes;
-    if (despesasMes > maiorValorGrafico) maiorValorGrafico = despesasMes;
-
-    resumoMensal.push({
-      mesNumero, mesNome: rotulosMeses[idx],
-      liquido: liquidoMes, despesas: despesasMes, resultado: resultadoMes,
-      dinheiro: dinheiroMes, pix: pixMes, debito: debitoMes, credito: creditoMes
-    });
+    const prefixo = `${anoSelecionado}-${mesNumero}`;
+    const aMes = atendimentosAno.filter((a) => String(a.data || '').startsWith(prefixo));
+    const sMes = saidasOpAno.filter((s) => String(s.data || '').startsWith(prefixo));
+    const liq = aMes.reduce((s, a) => s + (Number(a.valorFinal) || 0), 0);
+    const desp = sMes.reduce((s, x) => s + (Number(x.valor) || 0), 0);
+    const din = aMes.filter((a) => a.formaId === 'dinheiro').reduce((s, a) => s + (Number(a.valorFinal) || 0), 0);
+    const pix = aMes.filter((a) => a.formaId === 'pix').reduce((s, a) => s + (Number(a.valorFinal) || 0), 0);
+    const deb = aMes.filter((a) => a.formaId === 'debito').reduce((s, a) => s + (Number(a.valorFinal) || 0), 0);
+    const cred = aMes.filter((a) => String(a.formaId || '').startsWith('credito')).reduce((s, a) => s + (Number(a.valorFinal) || 0), 0);
+    totDin += din; totPix += pix; totDeb += deb; totCred += cred;
+    if (liq > maiorValor) maiorValor = liq;
+    if (desp > maiorValor) maiorValor = desp;
+    resumoMensal.push({ mesNumero, mesNome: rotulosMeses[idx], liquido: liq, despesas: desp, resultado: liq - desp, dinheiro: din, pix, debito: deb, credito: cred });
   }
 
-  const containerGrafico = document.getElementById('graficoAnualBarras');
-  if (containerGrafico) {
-    containerGrafico.innerHTML = resumoMensal
-      .map((m) => {
-        const alturaRec = Math.round((m.liquido / maiorValorGrafico) * 145);
-        const alturaDesp = Math.round((m.despesas / maiorValorGrafico) * 145);
-        return `
-        <div class="bar-col" title="${m.mesNome}/${anoSelecionado} — Receita: ${fmtBRL(m.liquido)} | Despesa: ${fmtBRL(m.despesas)}">
-          <div class="bar-pair">
-            <div class="bar-item rev" style="height: ${Math.max(3, alturaRec)}px;"></div>
-            <div class="bar-item exp" style="height: ${Math.max(3, alturaDesp)}px;"></div>
-          </div>
-          <span class="bar-label">${m.mesNome}</span>
-        </div>`;
-      })
-      .join('');
-  }
+  document.getElementById('graficoAnualBarras').innerHTML = resumoMensal
+    .map((m) => `
+      <div class="bar-col" title="${m.mesNome}/${anoSelecionado} — Receita: ${window.fmtBRL(m.liquido)} | Despesa: ${window.fmtBRL(m.despesas)}">
+        <div class="bar-pair">
+          <div class="bar-item rev" style="height:${Math.max(3, Math.round((m.liquido / maiorValor) * 145))}px;"></div>
+          <div class="bar-item exp" style="height:${Math.max(3, Math.round((m.despesas / maiorValor) * 145))}px;"></div>
+        </div>
+        <span class="bar-label">${m.mesNome}</span>
+      </div>`).join('');
 
-  const corpoTabelaMeses = document.querySelector('#tabelaGeralMeses tbody');
-  if (corpoTabelaMeses) {
-    corpoTabelaMeses.innerHTML = resumoMensal
-      .map(
-        (m) => `
-        <tr>
-          <td><strong>${m.mesNome}/${anoSelecionado}</strong></td>
-          <td>${fmtBRL(m.liquido)}</td>
-          <td class="text-danger">${fmtBRL(m.despesas)}</td>
-          <td class="${m.resultado >= 0 ? 'text-success' : 'text-danger'}"><strong>${fmtBRL(m.resultado)}</strong></td>
-          <td>${fmtBRL(m.dinheiro)}</td>
-          <td>${fmtBRL(m.pix)}</td>
-          <td>${fmtBRL(m.debito)}</td>
-          <td>${fmtBRL(m.credito)}</td>
-          <td><button type="button" class="btn-edit-sm" onclick="abrirDemonstrativoDoMes('${m.mesNumero}')">Demonstrativo</button></td>
-        </tr>`
-      )
-      .join('');
-  }
+  document.querySelector('#tabelaGeralMeses tbody').innerHTML = resumoMensal
+    .map((m) => `
+      <tr>
+        <td><strong>${m.mesNome}/${anoSelecionado}</strong></td>
+        <td>${window.fmtBRL(m.liquido)}</td>
+        <td class="text-danger">${window.fmtBRL(m.despesas)}</td>
+        <td class="${m.resultado >= 0 ? 'text-success' : 'text-danger'}"><strong>${window.fmtBRL(m.resultado)}</strong></td>
+        <td>${window.fmtBRL(m.dinheiro)}</td><td>${window.fmtBRL(m.pix)}</td><td>${window.fmtBRL(m.debito)}</td><td>${window.fmtBRL(m.credito)}</td>
+        <td><button type="button" class="btn-edit-sm" onclick="abrirDemonstrativoDoMes('${m.mesNumero}')">Demonstrativo</button></td>
+      </tr>`).join('');
 
-  const rodapeTabelaMeses = document.getElementById('tabelaGeralMesesFoot');
-  if (rodapeTabelaMeses) {
-    rodapeTabelaMeses.innerHTML = `
-      <tr class="row-total">
-        <td>TOTAL ${anoSelecionado}</td>
-        <td>${fmtBRL(receitaLiquidaTotal)}</td>
-        <td class="text-danger">${fmtBRL(despesaOperacionalTotal)}</td>
-        <td class="${lucroAnual >= 0 ? 'text-success' : 'text-danger'}">${fmtBRL(lucroAnual)}</td>
-        <td>${fmtBRL(totalDinheiroAno)}</td>
-        <td>${fmtBRL(totalPixAno)}</td>
-        <td>${fmtBRL(totalDebitoAno)}</td>
-        <td>${fmtBRL(totalCreditoAno)}</td>
-        <td>-</td>
-      </tr>
-      <tr class="row-media">
-        <td>MÉDIA MENSAL</td>
-        <td>${fmtBRL(receitaLiquidaTotal / 12)}</td>
-        <td>${fmtBRL(despesaOperacionalTotal / 12)}</td>
-        <td>${fmtBRL(lucroAnual / 12)}</td>
-        <td>${fmtBRL(totalDinheiroAno / 12)}</td>
-        <td>${fmtBRL(totalPixAno / 12)}</td>
-        <td>${fmtBRL(totalDebitoAno / 12)}</td>
-        <td>${fmtBRL(totalCreditoAno / 12)}</td>
-        <td>-</td>
-      </tr>`;
-  }
+  document.getElementById('tabelaGeralMesesFoot').innerHTML = `
+    <tr class="row-total">
+      <td>TOTAL ${anoSelecionado}</td><td>${window.fmtBRL(receitaLiquidaTotal)}</td><td class="text-danger">${window.fmtBRL(despesaOpTotal)}</td>
+      <td class="${lucroAnual >= 0 ? 'text-success' : 'text-danger'}">${window.fmtBRL(lucroAnual)}</td>
+      <td>${window.fmtBRL(totDin)}</td><td>${window.fmtBRL(totPix)}</td><td>${window.fmtBRL(totDeb)}</td><td>${window.fmtBRL(totCred)}</td><td>-</td>
+    </tr>`;
 
-  const corpoDentistasAnual = document.querySelector('#tabelaGeralDentistas tbody');
-  if (corpoDentistasAnual) {
-    corpoDentistasAnual.innerHTML = db.config.dentistas
-      .map((dent) => {
-        const vendidoAno = atendimentosAno.filter((a) => a.dentistaVendaId === dent.id).reduce((s, a) => s + (Number(a.valorFinal) || 0), 0);
-        const comissaoVendaAno = atendimentosAno.filter((a) => a.dentistaVendaId === dent.id).reduce((s, a) => s + (Number(a.comissaoVenda) || 0), 0);
-        const comissaoExecAno = atendimentosAno.filter((a) => a.dentistaExecId === dent.id).reduce((s, a) => s + (Number(a.comissaoExec) || 0), 0);
-        const producaoTotalAno = comissaoVendaAno + comissaoExecAno;
-        const descontosAno = saidasAno.filter((s) => s.dentistaId === dent.id).reduce((s, a) => s + (Number(a.valor) || 0), 0);
-        const totalPagoAno = Object.entries(db.pagamentosDentistas || {})
-          .filter(([chave]) => chave.startsWith(anoSelecionado) && chave.endsWith(`_${dent.id}`))
-          .reduce((s, [, val]) => s + (Number(val) || 0), 0);
-        const saldoPendenteAno = Math.max(0, Math.max(0, producaoTotalAno - descontosAno) - totalPagoAno);
+  document.querySelector('#tabelaGeralDentistas tbody').innerHTML = window.db.config.dentistas
+    .map((dent) => {
+      const vendido = atendimentosAno.filter((a) => a.dentistaVendaId === dent.id).reduce((s, a) => s + (Number(a.valorFinal) || 0), 0);
+      const comV = atendimentosAno.filter((a) => a.dentistaVendaId === dent.id).reduce((s, a) => s + (Number(a.comissaoVenda) || 0), 0);
+      const comE = atendimentosAno.filter((a) => a.dentistaExecId === dent.id).reduce((s, a) => s + (Number(a.comissaoExec) || 0), 0);
+      const prod = comV + comE;
+      const desc = saidasAno.filter((s) => s.dentistaId === dent.id).reduce((s, a) => s + (Number(a.valor) || 0), 0);
+      const pago = Object.entries(window.db.pagamentosDentistas || {})
+        .filter(([k]) => k.startsWith(anoSelecionado) && k.endsWith(`_${dent.id}`))
+        .reduce((s, [, v]) => s + (Number(v) || 0), 0);
+      const pend = Math.max(0, Math.max(0, prod - desc) - pago);
+      return `<tr><td><strong>${window.escapeHTML(dent.nome)}</strong></td><td>${window.fmtBRL(vendido)}</td><td>${window.fmtBRL(comV)}</td><td>${window.fmtBRL(comE)}</td><td><strong>${window.fmtBRL(prod)}</strong></td><td class="text-danger">${window.fmtBRL(desc)}</td><td>${window.fmtBRL(pago)}</td><td class="${pend > 0 ? 'text-danger' : 'text-success'}"><strong>${window.fmtBRL(pend)}</strong></td></tr>`;
+    }).join('');
 
-        return `
-        <tr>
-          <td><strong>${escapeHTML(dent.nome)}</strong></td>
-          <td>${fmtBRL(vendidoAno)}</td>
-          <td>${fmtBRL(comissaoVendaAno)}</td>
-          <td>${fmtBRL(comissaoExecAno)}</td>
-          <td><strong>${fmtBRL(producaoTotalAno)}</strong></td>
-          <td class="text-danger">${fmtBRL(descontosAno)}</td>
-          <td>${fmtBRL(totalPagoAno)}</td>
-          <td class="${saldoPendenteAno > 0 ? 'text-danger' : 'text-success'}"><strong>${fmtBRL(saldoPendenteAno)}</strong></td>
-        </tr>`;
-      })
-      .join('');
-  }
+  const mapaCat = {};
+  let somaCat = 0;
+  saidasOpAno.forEach((s) => {
+    const c = s.categoria || 'OUTROS';
+    mapaCat[c] = (mapaCat[c] || 0) + (Number(s.valor) || 0);
+    somaCat += Number(s.valor) || 0;
+  });
+  document.getElementById('geralDespesasBody').innerHTML =
+    Object.entries(mapaCat).sort((a, b) => b[1] - a[1])
+      .map(([c, t]) => `<tr><td><strong>${window.escapeHTML(c)}</strong></td><td class="text-danger">${window.fmtBRL(t)}</td><td>${somaCat > 0 ? ((t / somaCat) * 100).toFixed(1) : '0.0'}%</td></tr>`)
+      .join('') || '<tr><td colspan="3">Nenhuma despesa registrada neste ano.</td></tr>';
 
-  const corpoDespesasCat = document.getElementById('geralDespesasBody');
-  if (corpoDespesasCat) {
-    const mapaCategorias = {};
-    let somaTotalCategorias = 0;
-
-    saidasOperacionaisAno.forEach((s) => {
-      const cat = s.categoria || 'OUTROS';
-      const val = Number(s.valor) || 0;
-      mapaCategorias[cat] = (mapaCategorias[cat] || 0) + val;
-      somaTotalCategorias += val;
-    });
-
-    const linhasCat = Object.entries(mapaCategorias)
-      .sort((a, b) => b[1] - a[1])
-      .map(([cat, total]) => {
-        const perc = somaTotalCategorias > 0 ? (total / somaTotalCategorias) * 100 : 0;
-        return `<tr><td><strong>${escapeHTML(cat)}</strong></td><td class="text-danger">${fmtBRL(total)}</td><td>${perc.toFixed(1)}%</td></tr>`;
-      })
-      .join('');
-
-    corpoDespesasCat.innerHTML = linhasCat || '<tr><td colspan="3">Nenhuma despesa registrada neste ano.</td></tr>';
-  }
-
-  const corpoEspAno = document.getElementById('geralEspecialidadesBody');
-  if (corpoEspAno) {
-    const mapaEspecialidades = {};
-    atendimentosAno.forEach((a) => {
-      const esp = a.espNome || 'OUTROS';
-      if (!mapaEspecialidades[esp]) mapaEspecialidades[esp] = { qtd: 0, total: 0 };
-      mapaEspecialidades[esp].qtd += 1;
-      mapaEspecialidades[esp].total += Number(a.valorFinal) || 0;
-    });
-
-    const linhasEsp = Object.entries(mapaEspecialidades)
-      .sort((a, b) => b[1].total - a[1].total)
-      .map(([esp, dados]) => `<tr><td><strong>${escapeHTML(esp)}</strong></td><td>${dados.qtd}</td><td class="text-success"><strong>${fmtBRL(dados.total)}</strong></td></tr>`)
-      .join('');
-
-    corpoEspAno.innerHTML = linhasEsp || '<tr><td colspan="3">Nenhum atendimento registrado neste ano.</td></tr>';
-  }
+  const mapaEsp = {};
+  atendimentosAno.forEach((a) => {
+    const e = a.espNome || 'OUTROS';
+    if (!mapaEsp[e]) mapaEsp[e] = { qtd: 0, total: 0 };
+    mapaEsp[e].qtd += 1;
+    mapaEsp[e].total += Number(a.valorFinal) || 0;
+  });
+  document.getElementById('geralEspecialidadesBody').innerHTML =
+    Object.entries(mapaEsp).sort((a, b) => b[1].total - a[1].total)
+      .map(([e, d]) => `<tr><td><strong>${window.escapeHTML(e)}</strong></td><td>${d.qtd}</td><td class="text-success"><strong>${window.fmtBRL(d.total)}</strong></td></tr>`)
+      .join('') || '<tr><td colspan="3">Nenhum atendimento registrado neste ano.</td></tr>';
 
   renderizarDemonstrativoMensal(anoSelecionado);
 }
 
-// ==================== DEMONSTRATIVO MENSAL ====================
 function renderizarDemonstrativoMensal(anoSelecionado) {
   const seletorMes = document.getElementById('filtroMesDemo');
   if (!seletorMes) return;
-
   if (seletorMes.options.length === 0) {
-    const mesesNomes = [
-      'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
-      'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
-    ];
-    seletorMes.innerHTML = mesesNomes
-      .map((nome, idx) => `<option value="${String(idx + 1).padStart(2, '0')}">${nome}</option>`)
-      .join('');
+    const meses = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+    seletorMes.innerHTML = meses.map((n, i) => `<option value="${String(i + 1).padStart(2, '0')}">${n}</option>`).join('');
     seletorMes.value = String(new Date().getMonth() + 1).padStart(2, '0');
-    seletorMes.addEventListener('change', () => {
-      const anoAtualFiltro = document.getElementById('filtroAno')?.value || String(new Date().getFullYear());
-      renderizarDemonstrativoMensal(anoAtualFiltro);
-    });
-
-    const btnImprimir = document.getElementById('btnImprimirDemo');
-    if (btnImprimir) btnImprimir.addEventListener('click', () => window.print());
+    seletorMes.addEventListener('change', () => renderizarDemonstrativoMensal(document.getElementById('filtroAno')?.value || String(new Date().getFullYear())));
+    document.getElementById('btnImprimirDemo')?.addEventListener('click', () => window.print());
   }
 
-  const mesEscolhido = seletorMes.value || '01';
-  const prefixoPeriodo = `${anoSelecionado}-${mesEscolhido}`;
-  const ultimoDiaMes = new Date(Number(anoSelecionado), Number(mesEscolhido), 0).getDate();
-  const dataFechamentoFmt = `${String(ultimoDiaMes).padStart(2, '0')}/${mesEscolhido}/${anoSelecionado}`;
+  const mes = seletorMes.value || '01';
+  const prefixo = `${anoSelecionado}-${mes}`;
+  const ultimoDia = new Date(Number(anoSelecionado), Number(mes), 0).getDate();
+  const dataFech = `${String(ultimoDia).padStart(2, '0')}/${mes}/${anoSelecionado}`;
 
-  const clinica = db.config.clinica || {};
-  const nomeClinica = escapeHTML(clinica.nome || 'DôPin Saúde — Clínica Odontológica');
-  const detalhesClinica = [
-    clinica.razaoSocial ? `Razão Social: ${escapeHTML(clinica.razaoSocial)}` : '',
-    clinica.cnpj ? `CNPJ/CPF: ${escapeHTML(clinica.cnpj)}` : '',
-    clinica.cro ? `CRO: ${escapeHTML(clinica.cro)}` : '',
-    clinica.telefone ? `Tel: ${escapeHTML(clinica.telefone)}` : '',
-    clinica.endereco ? `End.: ${escapeHTML(clinica.endereco)}` : ''
+  const clinica = window.db.config.clinica || {};
+  const logoHtml = window.clinicLogoDataUrl ? `<img src="${window.clinicLogoDataUrl}" class="demo-clinic-logo" alt="Logo" />` : '';
+  const detalhes = [
+    clinica.razaoSocial ? `Razão Social: ${window.escapeHTML(clinica.razaoSocial)}` : '',
+    clinica.cnpj ? `CNPJ/CPF: ${window.escapeHTML(clinica.cnpj)}` : '',
+    clinica.cro ? `CRO: ${window.escapeHTML(clinica.cro)}` : '',
+    clinica.telefone ? `Tel: ${window.escapeHTML(clinica.telefone)}` : '',
+    clinica.endereco ? `End.: ${window.escapeHTML(clinica.endereco)}` : ''
   ].filter(Boolean).join(' • ');
 
-  const atendimentosMes = db.atendimentos.filter((a) => String(a.data || '').startsWith(prefixoPeriodo));
-  const saidasMes = db.saidas.filter((s) => String(s.data || '').startsWith(prefixoPeriodo));
-  const saidasOpMes = saidasMes.filter((s) => s.origem !== 'Desconto Produção');
+  const aMes = window.db.atendimentos.filter((a) => String(a.data || '').startsWith(prefixo));
+  const sMes = window.db.saidas.filter((s) => String(s.data || '').startsWith(prefixo));
+  const sOp = sMes.filter((s) => s.origem !== 'Desconto Produção');
 
-  const receitaBruta = atendimentosMes.reduce((acc, a) => acc + (Number(a.valorPago) || 0), 0);
-  const receitaLiquida = atendimentosMes.reduce((acc, a) => acc + (Number(a.valorFinal) || 0), 0);
-  const taxasCartao = Math.max(0, receitaBruta - receitaLiquida);
-  const despesasOperacionais = saidasOpMes.reduce((acc, s) => acc + (Number(s.valor) || 0), 0);
-  const resultadoLiquido = receitaLiquida - despesasOperacionais;
+  const bruto = aMes.reduce((s, a) => s + (Number(a.valorPago) || 0), 0);
+  const liq = aMes.reduce((s, a) => s + (Number(a.valorFinal) || 0), 0);
+  const taxas = Math.max(0, bruto - liq);
+  const desp = sOp.reduce((s, x) => s + (Number(x.valor) || 0), 0);
+  const resLiq = liq - desp;
 
-  const despesasPorCategoria = {};
-  saidasOpMes.forEach((s) => {
-    const cat = s.categoria || 'OUTROS';
-    despesasPorCategoria[cat] = (despesasPorCategoria[cat] || 0) + (Number(s.valor) || 0);
-  });
+  const despCat = {};
+  sOp.forEach((s) => { const c = s.categoria || 'OUTROS'; despCat[c] = (despCat[c] || 0) + (Number(s.valor) || 0); });
+  const linhasDesp = Object.entries(despCat).sort((a, b) => b[1] - a[1])
+    .map(([c, v]) => `<tr><td>${window.escapeHTML(c)}</td><td><strong>${window.fmtBRL(v)}</strong></td></tr>`).join('') || '<tr><td colspan="2">Nenhuma despesa lançada neste mês.</td></tr>';
 
-  const linhasDespesasHtml = Object.entries(despesasPorCategoria)
-    .sort((a, b) => b[1] - a[1])
-    .map(([cat, val]) => `<tr><td>${escapeHTML(cat)}</td><td><strong>${fmtBRL(val)}</strong></td></tr>`)
-    .join('') || '<tr><td colspan="2">Nenhuma despesa lançada neste mês.</td></tr>';
+  const linhasDent = window.db.config.dentistas.map((d) => {
+    const cv = aMes.filter((a) => a.dentistaVendaId === d.id).reduce((s, a) => s + (Number(a.comissaoVenda) || 0), 0);
+    const ce = aMes.filter((a) => a.dentistaExecId === d.id).reduce((s, a) => s + (Number(a.comissaoExec) || 0), 0);
+    const dc = sMes.filter((s) => s.dentistaId === d.id).reduce((s, x) => s + (Number(x.valor) || 0), 0);
+    return `<tr><td><strong>${window.escapeHTML(d.nome)}</strong></td><td>${window.fmtBRL(cv)}</td><td>${window.fmtBRL(ce)}</td><td class="text-danger">${window.fmtBRL(dc)}</td><td><strong>${window.fmtBRL(Math.max(0, cv + ce - dc))}</strong></td></tr>`;
+  }).join('');
 
-  const linhasDentistasHtml = db.config.dentistas
-    .map((dent) => {
-      const comVenda = atendimentosMes.filter((a) => a.dentistaVendaId === dent.id).reduce((acc, a) => acc + (Number(a.comissaoVenda) || 0), 0);
-      const comExec = atendimentosMes.filter((a) => a.dentistaExecId === dent.id).reduce((acc, a) => acc + (Number(a.comissaoExec) || 0), 0);
-      const descontos = saidasMes.filter((s) => s.dentistaId === dent.id).reduce((acc, s) => acc + (Number(s.valor) || 0), 0);
-      const totalRepasse = Math.max(0, comVenda + comExec - descontos);
-      return `<tr><td><strong>${escapeHTML(dent.nome)}</strong></td><td>${fmtBRL(comVenda)}</td><td>${fmtBRL(comExec)}</td><td class="text-danger">${fmtBRL(descontos)}</td><td><strong>${fmtBRL(totalRepasse)}</strong></td></tr>`;
-    })
-    .join('');
-
-  const containerDemo = document.getElementById('demonstrativoMensalConteudo');
-  if (containerDemo) {
-    containerDemo.innerHTML = `
-      <div class="demo-header-doc">
+  document.getElementById('demonstrativoMensalConteudo').innerHTML = `
+    <div class="demo-header-doc">
+      <div class="demo-header-brand">
+        ${logoHtml}
         <div>
-          <h4>${nomeClinica}</h4>
-          <p>${detalhesClinica || 'Configure os dados institucionais da clínica na aba Configurações.'}</p>
-        </div>
-        <div class="demo-meta-box">
-          <strong>Demonstrativo Mensal de Fechamento</strong><br>
-          Competência: ${mesEscolhido}/${anoSelecionado}<br>
-          Fechado em: ${dataFechamentoFmt}
+          <h4>${window.escapeHTML(clinica.nome || 'DôPin Saúde — Clínica Odontológica')}</h4>
+          <p>${detalhes || 'Configure os dados institucionais da clínica na aba Configurações.'}</p>
         </div>
       </div>
-
-      <div class="demo-summary-grid">
-        <div class="demo-box"><span>Receita Bruta</span><strong>${fmtBRL(receitaBruta)}</strong></div>
-        <div class="demo-box"><span>Taxas de Cartão</span><strong class="text-danger">${fmtBRL(taxasCartao)}</strong></div>
-        <div class="demo-box"><span>Receita Líquida</span><strong>${fmtBRL(receitaLiquida)}</strong></div>
-        <div class="demo-box"><span>Despesas Operacionais</span><strong class="text-danger">${fmtBRL(despesasOperacionais)}</strong></div>
-        <div class="demo-box"><span>Resultado Líquido</span><strong class="${resultadoLiquido >= 0 ? 'text-success' : 'text-danger'}">${fmtBRL(resultadoLiquido)}</strong></div>
+      <div class="demo-meta-box">
+        <strong>Demonstrativo Mensal de Fechamento</strong><br>
+        Competência: ${mes}/${anoSelecionado}<br>
+        Fechado em: ${dataFech}
       </div>
-
-      <h5 class="demo-section-title">Despesas por Categoria</h5>
-      <div class="table-responsive">
-        <table><thead><tr><th>Categoria</th><th>Total no Mês</th></tr></thead><tbody>${linhasDespesasHtml}</tbody></table>
-      </div>
-
-      <h5 class="demo-section-title">Resumo de Repasses aos Profissionais</h5>
-      <div class="table-responsive">
-        <table>
-          <thead><tr><th>Profissional</th><th>Comissão Venda</th><th>Comissão Execução</th><th>Descontos</th><th>Líquido a Repassar</th></tr></thead>
-          <tbody>${linhasDentistasHtml}</tbody>
-        </table>
-      </div>
-
-      <div class="demo-signatures">
-        <div class="sig-line">Assinatura da Administração / Direção</div>
-        <div class="sig-line">Conferência Financeira — ${dataFechamentoFmt}</div>
-      </div>
-    `;
-  }
+    </div>
+    <div class="demo-summary-grid">
+      <div class="demo-box"><span>Receita Bruta</span><strong>${window.fmtBRL(bruto)}</strong></div>
+      <div class="demo-box"><span>Taxas de Cartão</span><strong class="text-danger">${window.fmtBRL(taxas)}</strong></div>
+      <div class="demo-box"><span>Receita Líquida</span><strong>${window.fmtBRL(liq)}</strong></div>
+      <div class="demo-box"><span>Despesas Operacionais</span><strong class="text-danger">${window.fmtBRL(desp)}</strong></div>
+      <div class="demo-box"><span>Resultado Líquido</span><strong class="${resLiq >= 0 ? 'text-success' : 'text-danger'}">${window.fmtBRL(resLiq)}</strong></div>
+    </div>
+    <h5 class="demo-section-title">Despesas por Categoria</h5>
+    <div class="table-responsive"><table><thead><tr><th>Categoria</th><th>Total no Mês</th></tr></thead><tbody>${linhasDesp}</tbody></table></div>
+    <h5 class="demo-section-title">Resumo de Repasses aos Profissionais</h5>
+    <div class="table-responsive"><table><thead><tr><th>Profissional</th><th>Comissão Venda</th><th>Comissão Execução</th><th>Descontos</th><th>Líquido a Repassar</th></tr></thead><tbody>${linhasDent}</tbody></table></div>
+    <div class="demo-signatures">
+      <div class="sig-line">Assinatura da Administração / Direção</div>
+      <div class="sig-line">Conferência Financeira — ${dataFech}</div>
+    </div>`;
 }
 
-// ==================== ABA CONFIGURAÇÕES ====================
 function renderizarConfig() {
-  const clinica = db.config.clinica || {};
-  document.getElementById('cfgClinicaNome').value = clinica.nome || '';
-  document.getElementById('cfgClinicaRazao').value = clinica.razaoSocial || '';
-  document.getElementById('cfgClinicaCnpj').value = clinica.cnpj || '';
-  document.getElementById('cfgClinicaCro').value = clinica.cro || '';
-  document.getElementById('cfgClinicaTelefone').value = clinica.telefone || '';
-  document.getElementById('cfgClinicaEmail').value = clinica.email || '';
-  document.getElementById('cfgClinicaEndereco').value = clinica.endereco || '';
+  const c = window.db.config.clinica || {};
+  document.getElementById('cfgClinicaNome').value = c.nome || '';
+  document.getElementById('cfgClinicaRazao').value = c.razaoSocial || '';
+  document.getElementById('cfgClinicaCnpj').value = c.cnpj || '';
+  document.getElementById('cfgClinicaCro').value = c.cro || '';
+  document.getElementById('cfgClinicaTelefone').value = c.telefone || '';
+  document.getElementById('cfgClinicaEmail').value = c.email || '';
+  document.getElementById('cfgClinicaEndereco').value = c.endereco || '';
+  document.getElementById('cfgComissaoVenda').value = window.db.config.percentualVenda ?? 5;
+  aplicarLogoNaInterface();
 
-  const inpComVenda = document.getElementById('cfgComissaoVenda');
-  if (inpComVenda) inpComVenda.value = db.config.percentualVenda ?? 5;
+  document.getElementById('listaDentistas').innerHTML =
+    window.db.config.dentistas
+      .map((d) => `<li><div><strong>${window.escapeHTML(d.nome)}</strong><br><small class="hint">Usuário: <code>${window.escapeHTML(d.usuario)}</code></small></div><button type="button" class="btn-danger-sm" onclick="removerUsuarioNuvem('${window.escapeHTML(d.id)}')">Desativar</button></li>`)
+      .join('') || '<li><span class="hint">Nenhum dentista cadastrado.</span></li>';
 
-  const inpGas = document.getElementById('cfgGasUrl');
-  if (inpGas) {
-    inpGas.value = API_BASE_URL;
-    inpGas.readOnly = true;
-  }
+  document.getElementById('listaRecepcao').innerHTML =
+    window.db.config.recepcionistas
+      .map((r) => `<li><div><strong>${window.escapeHTML(r.nome)}</strong><br><small class="hint">Usuário: <code>${window.escapeHTML(r.usuario)}</code></small></div><button type="button" class="btn-danger-sm" onclick="removerUsuarioNuvem('${window.escapeHTML(r.id)}')">Desativar</button></li>`)
+      .join('') || '<li><span class="hint">Nenhuma recepção cadastrada.</span></li>';
 
-  const listaDentistas = document.getElementById('listaDentistas');
-  if (listaDentistas) {
-    listaDentistas.innerHTML = db.config.dentistas
-      .map(
-        (d) => `
-        <li>
-          <div>
-            <strong>${escapeHTML(d.nome)}</strong>
-            <br><small class="hint">Usuário: <code>${escapeHTML(d.usuario)}</code> • Senha protegida por hash</small>
-          </div>
-          <div class="item-actions">
-            <button type="button" class="btn-danger-sm" onclick="removerUsuarioNuvem('${escapeHTML(d.id)}')">Desativar</button>
-          </div>
-        </li>`
-      )
-      .join('') || '<li><span class="hint">Nenhum dentista cadastrado ainda.</span></li>';
-  }
+  document.getElementById('listaEspecialidades').innerHTML =
+    window.db.config.especialidades.map((e) => `<li><span><strong>${window.escapeHTML(e.nome)}</strong></span><span><strong>${Number(e.percentual) || 0}%</strong></span></li>`).join('');
 
-  const listaRecepcao = document.getElementById('listaRecepcao');
-  if (listaRecepcao) {
-    listaRecepcao.innerHTML = db.config.recepcionistas
-      .map(
-        (r) => `
-        <li>
-          <div>
-            <strong>${escapeHTML(r.nome)}</strong>
-            <br><small class="hint">Usuário: <code>${escapeHTML(r.usuario)}</code> • Senha protegida por hash</small>
-          </div>
-          <div class="item-actions">
-            <button type="button" class="btn-danger-sm" onclick="removerUsuarioNuvem('${escapeHTML(r.id)}')">Desativar</button>
-          </div>
-        </li>`
-      )
-      .join('') || '<li><span class="hint">Nenhuma recepção cadastrada ainda.</span></li>';
-  }
-
-  const listaEsp = document.getElementById('listaEspecialidades');
-  if (listaEsp) {
-    listaEsp.innerHTML = db.config.especialidades
-      .map((esp) => `<li><span><strong>${escapeHTML(esp.nome)}</strong></span><span><strong>${Number(esp.percentual) || 0}%</strong></span></li>`)
-      .join('');
-  }
-
-  const listaTaxas = document.getElementById('listaTaxas');
-  if (listaTaxas) {
-    listaTaxas.innerHTML = db.config.taxas
-      .map((tx) => `<li><span><strong>${escapeHTML(tx.nome)}</strong></span><span><strong>${Number(tx.taxa) || 0}%</strong></span></li>`)
-      .join('');
-  }
-
-  const listaSaidas = document.getElementById('listaSaidasCat');
-  if (listaSaidas) {
-    listaSaidas.innerHTML = db.config.categoriasSaida
-      .map((cat) => `<li><span><strong>${escapeHTML(cat)}</strong></span></li>`)
-      .join('');
-  }
+  document.getElementById('listaTaxas').innerHTML =
+    window.db.config.taxas.map((t) => `<li><span><strong>${window.escapeHTML(t.nome)}</strong></span><span><strong>${Number(t.taxa) || 0}%</strong></span></li>`).join('');
 }
 
 window.removerUsuarioNuvem = async function (id) {
@@ -1543,129 +1505,5 @@ window.removerUsuarioNuvem = async function (id) {
     await carregarDadosDaNuvem();
   } catch (err) {
     alert(`Erro ao desativar usuário: ${err.message}`);
-  }
-};
-
-// ==================== PACIENTES & DOCUMENTOS (CLOUDFLARE R2) ====================
-function fmtTamanhoBytes(bytes) {
-  const b = Number(bytes || 0);
-  if (b < 1024) return `${b} B`;
-  if (b < 1024 * 1024) return `${(b / 1024).toFixed(1)} KB`;
-  return `${(b / (1024 * 1024)).toFixed(2)} MB`;
-}
-
-function renderizarPacientes() {
-  const ul = document.getElementById('listaPacientes');
-  if (!ul) return;
-
-  const termo = (document.getElementById('buscaPaciente')?.value || '').trim().toLowerCase();
-  const filtrados = db.pacientes.filter((p) =>
-    String(p.nome || '').toLowerCase().includes(termo) ||
-    String(p.cpf || '').toLowerCase().includes(termo)
-  );
-
-  if (filtrados.length === 0) {
-    ul.innerHTML = '<li><span class="hint">Nenhum paciente encontrado.</span></li>';
-    return;
-  }
-
-  ul.innerHTML = filtrados
-    .map((p) => {
-      const ativo = p.id === pacienteSelecionadoId;
-      const detalhes = [p.cpf ? `CPF: ${escapeHTML(p.cpf)}` : '', p.telefone ? `Tel: ${escapeHTML(p.telefone)}` : '']
-        .filter(Boolean)
-        .join(' • ');
-      return `
-        <li style="${ativo ? 'border-color: var(--turquoise-500); background: var(--turquoise-50);' : ''}">
-          <div>
-            <strong>${escapeHTML(p.nome)}</strong>
-            ${detalhes ? `<br><small class="hint">${detalhes}</small>` : ''}
-          </div>
-          <div class="item-actions">
-            <button type="button" class="btn-edit-sm" onclick="selecionarPaciente('${escapeHTML(p.id)}')">
-              ${ativo ? 'Selecionado' : 'Ver Exames'}
-            </button>
-          </div>
-        </li>`;
-    })
-    .join('');
-}
-
-async function carregarDocumentosPaciente(pacienteId) {
-  const tbody = document.getElementById('listaDocumentosBody');
-  if (tbody) tbody.innerHTML = '<tr><td colspan="4">Carregando arquivos...</td></tr>';
-
-  try {
-    const res = await DopinAPI.listarDocumentos(pacienteId);
-    documentosPacienteAtual = res.documentos || [];
-    renderizarDocumentosPaciente();
-  } catch (err) {
-    if (tbody) tbody.innerHTML = `<tr><td colspan="4" class="text-danger">Erro: ${escapeHTML(err.message)}</td></tr>`;
-  }
-}
-
-window.selecionarPaciente = async function (pacienteId) {
-  pacienteSelecionadoId = pacienteId;
-  const pac = db.pacientes.find((p) => p.id === pacienteId);
-  const titulo = document.getElementById('tituloDocsPaciente');
-  const hint = document.getElementById('hintDocsPaciente');
-  const area = document.getElementById('areaDocsPaciente');
-
-  if (pac && titulo && hint && area) {
-    titulo.innerHTML = `<i data-lucide="file-text"></i> Exames &amp; Documentos — ${escapeHTML(pac.nome)}`;
-    hint.textContent = 'Arquivos privados armazenados no Cloudflare R2.';
-    area.classList.remove('hidden');
-    if (typeof lucide !== 'undefined') lucide.createIcons();
-  }
-
-  renderizarPacientes();
-  await carregarDocumentosPaciente(pacienteId);
-};
-
-function renderizarDocumentosPaciente() {
-  const tbody = document.getElementById('listaDocumentosBody');
-  if (!tbody) return;
-
-  if (documentosPacienteAtual.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="4">Nenhum arquivo anexado para este paciente.</td></tr>';
-    return;
-  }
-
-  tbody.innerHTML = documentosPacienteAtual
-    .map(
-      (doc) => `
-      <tr>
-        <td><strong>${escapeHTML(doc.nome_original)}</strong></td>
-        <td>${escapeHTML(doc.categoria || 'exame')}</td>
-        <td>${fmtTamanhoBytes(doc.tamanho_bytes)}</td>
-        <td class="item-actions">
-          <button type="button" class="btn-edit-sm" onclick="visualizarDocumento('${escapeHTML(doc.id)}')">Abrir</button>
-          <button type="button" class="btn-danger-sm" onclick="excluirDocumentoNuvem('${escapeHTML(doc.id)}')">Excluir</button>
-        </td>
-      </tr>`
-    )
-    .join('');
-}
-
-window.visualizarDocumento = async function (docId) {
-  try {
-    const blob = await DopinAPI.baixarArquivoBlob(docId);
-    const urlTemp = URL.createObjectURL(blob);
-    window.open(urlTemp, '_blank', 'noopener,noreferrer');
-    setTimeout(() => URL.revokeObjectURL(urlTemp), 60000);
-  } catch (err) {
-    alert(`Erro ao abrir arquivo: ${err.message}`);
-  }
-};
-
-window.excluirDocumentoNuvem = async function (docId) {
-  if (!confirm('Deseja excluir permanentemente este arquivo da nuvem?')) return;
-  try {
-    await DopinAPI.excluirDocumento(docId);
-    if (pacienteSelecionadoId) {
-      await carregarDocumentosPaciente(pacienteSelecionadoId);
-    }
-  } catch (err) {
-    alert(`Erro ao excluir arquivo: ${err.message}`);
   }
 };

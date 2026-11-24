@@ -42,7 +42,6 @@
 
     <main class="login-main">
       <div class="login-card">
-        <!-- Painel Institucional Esquerdo -->
         <div class="login-hero">
           <div class="glow-top"></div>
           <div class="glow-bottom"></div>
@@ -53,7 +52,7 @@
             </span>
             <h2>Simplicidade que conecta sua clínica.</h2>
             <p>
-              Prontuário eletrônico, agenda inteligente, controle financeiro e repasses em um ambiente rápido, seguro e preparado para nunca parar.
+              Prontuário eletrônico, odontograma, orçamento inteligente, controle financeiro e repasses em um ambiente rápido e seguro na nuvem.
             </p>
           </div>
 
@@ -64,12 +63,11 @@
             </div>
             <div class="hero-feat">
               <span class="feat-check cyan">✓</span>
-              <span>Operação contínua com sincronização automática</span>
+              <span>Dados e arquivos privados em Cloudflare D1 + R2</span>
             </div>
           </div>
         </div>
 
-        <!-- Formulário de Acesso Direito -->
         <div class="login-form-side">
           <div class="login-form-box">
             <h3>Acesse sua conta</h3>
@@ -129,10 +127,9 @@
 
   <!-- ==================== SISTEMA PRINCIPAL (APP) ==================== -->
   <div id="appShell" class="hidden">
-    <!-- Cabeçalho Principal -->
     <header class="topbar no-print">
       <div class="brand">
-        <div class="logo-badge" aria-hidden="true">
+        <div class="logo-badge" id="headerLogoBadge" aria-hidden="true">
           <svg width="26" height="26" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
             <path d="M9 7.5L16 3.5L23 7.5" stroke="#22D3EE" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
             <path d="M6.5 11.5H10.5C13.2614 11.5 15.5 13.7386 15.5 16.5V19.5C15.5 22.2614 13.2614 24.5 10.5 24.5H6.5V11.5Z" stroke="#FFFFFF" stroke-width="2.4" stroke-linejoin="round"/>
@@ -152,7 +149,7 @@
       <div class="header-controls">
         <div class="user-pill" title="Usuário e perfil logados">
           <i data-lucide="user-check"></i>
-          <span id="usuarioLogadoInfo">Dr. Pedro (Profissional)</span>
+          <span id="usuarioLogadoInfo">Usuário</span>
         </div>
 
         <div class="date-picker-box">
@@ -166,7 +163,7 @@
         </div>
 
         <button id="btnSincronizar" class="btn btn-outline-light" title="Atualizar dados da nuvem">
-          <i data-lucide="refresh-cw"></i> <span id="badgePendentes">0</span>
+          <i data-lucide="refresh-cw"></i>
         </button>
 
         <button id="btnSair" class="btn btn-outline-light" title="Encerrar sessão">
@@ -181,7 +178,7 @@
         <i data-lucide="clipboard-list"></i> Mapa Diário
       </button>
       <button class="tab-btn" data-tab="pacientes" id="navTabPacientes">
-        <i data-lucide="folder-heart"></i> Pacientes &amp; Exames
+        <i data-lucide="folder-heart"></i> Pacientes &amp; Prontuário
       </button>
       <button class="tab-btn" data-tab="saidas" id="navTabSaidas">
         <i data-lucide="arrow-up-circle"></i> Saídas
@@ -191,6 +188,9 @@
       </button>
       <button class="tab-btn" data-tab="pagamentos" id="navTabPagamentos">
         <i data-lucide="users"></i> Pagamento Dentista
+      </button>
+      <button class="tab-btn hidden" data-tab="aprovacoes" id="navTabAprovacoes">
+        <i data-lucide="shield-check"></i> Aprovações <span id="badgeAprovacoes" class="nav-badge-count hidden">0</span>
       </button>
       <button class="tab-btn" data-tab="geral" data-protected="true" id="navTabGeral">
         <i data-lucide="lock"></i> Geral (Anual)
@@ -206,13 +206,17 @@
         <div class="card" id="cardFormMapa">
           <div class="card-header">
             <h2>Novo Atendimento / Venda</h2>
-            <span class="hint">Os descontos de maquineta e comissões são calculados automaticamente.</span>
+            <span class="hint">Selecione um paciente cadastrado. Ortodontia (ORTO) é isenta de desconto de maquineta na comissão de execução.</span>
           </div>
 
           <form id="formMapa" class="grid-form">
-            <div class="form-group">
-              <label>Paciente *</label>
-              <input type="text" id="mPaciente" placeholder="Nome completo" required />
+            <!-- Seletor pesquisável de paciente cadastrado (Item 13) -->
+            <div class="form-group paciente-picker-wrap">
+              <label>Paciente Cadastrado (Nome ou CPF) *</label>
+              <input type="hidden" id="mPacienteId" value="" />
+              <input type="text" id="mPacienteBusca" placeholder="Digite nome ou CPF para selecionar..." autocomplete="off" required />
+              <div id="mPacienteDropdown" class="paciente-picker-dropdown hidden"></div>
+              <small id="mPacienteHint" class="hint">Selecione um paciente da lista.</small>
             </div>
 
             <div class="form-group">
@@ -255,11 +259,17 @@
               <input type="number" id="mValorLab" step="0.01" min="0" value="0" />
             </div>
 
-            <!-- Pré-visualização em tempo real -->
+            <!-- Justificativa retroativa (aparece automaticamente se data < hoje servidor) -->
+            <div id="boxRetroMapa" class="retro-alert-box hidden">
+              <label for="mJustificativaRetro">⚠️ Lançamento com data retroativa — Justificativa obrigatória *</label>
+              <input type="text" id="mJustificativaRetro" placeholder="Explique o motivo do lançamento em data anterior..." />
+              <small>Este lançamento ficará como Pendente de aprovação administrativa e só entrará nos totais após aprovado.</small>
+            </div>
+
             <div class="preview-strip">
               <div><span>Valor Final (Líq.):</span> <strong id="prevValorFinal">R$ 0,00</strong></div>
               <div><span>Comissão Venda:</span> <strong id="prevComVenda">R$ 0,00</strong></div>
-              <div><span>Exec. Líquida:</span> <strong id="prevExecLiq">R$ 0,00</strong></div>
+              <div><span>Exec. Base:</span> <strong id="prevExecLiq">R$ 0,00</strong> <small id="prevOrtoTag" class="status-tag realizado hidden">Isento taxa (ORTO)</small></div>
               <div><span>Comissão Exec.:</span> <strong id="prevComExec">R$ 0,00</strong></div>
               <div class="highlight"><span>Comissão Total:</span> <strong id="prevComTotal">R$ 0,00</strong></div>
             </div>
@@ -274,8 +284,8 @@
 
         <div class="card">
           <div class="card-header">
-            <h2>Lançamentos do Dia</h2>
-            <span class="hint hidden" id="hintMapaProfissional">Visualização somente leitura dos atendimentos lançados pela recepção.</span>
+            <h2>Lançamentos Aprovados do Dia</h2>
+            <span class="hint hidden" id="hintMapaProfissional">Visualização somente leitura dos seus atendimentos lançados no dia.</span>
           </div>
           <div class="table-responsive">
             <table id="tabelaMapa">
@@ -287,7 +297,7 @@
                   <th>Pago (Bruto)</th>
                   <th>Valor Final</th>
                   <th>Vend. / Com. Venda</th>
-                  <th>Exec. Líq.</th>
+                  <th>Exec. Base</th>
                   <th>Lab.</th>
                   <th>Exec. / Com. Exec.</th>
                   <th id="thAcoesMapa">Ações</th>
@@ -299,85 +309,395 @@
         </div>
       </section>
 
-      <!-- ==================== ABA PACIENTES & EXAMES (R2) ==================== -->
+      <!-- ==================== ABA PACIENTES & PRONTUÁRIO ==================== -->
       <section id="tab-pacientes" class="tab-content">
-        <div class="card">
-          <div class="card-header">
-            <h2><i data-lucide="user-plus"></i> Cadastrar Novo Paciente</h2>
-            <span class="hint">Os dados e arquivos ficam salvos com isolamento exclusivo da sua clínica.</span>
-          </div>
-          <form id="formPaciente" class="grid-form">
-            <div class="form-group">
-              <label>Nome Completo *</label>
-              <input type="text" id="pacNome" placeholder="Ex: Maria da Silva" required />
+        <!-- Visão 1: Lista e Cadastro de Pacientes -->
+        <div id="viewListaPacientes">
+          <div class="card" id="cardCadastroPaciente">
+            <div class="card-header">
+              <h2 id="tituloFormPaciente"><i data-lucide="user-plus"></i> Cadastrar Novo Paciente &amp; Anamnese</h2>
+              <span class="hint">Os dados e a anamnese ficam vinculados ao prontuário do paciente na nuvem.</span>
             </div>
-            <div class="form-group">
-              <label>CPF (Opcional)</label>
-              <input type="text" id="pacCpf" placeholder="000.000.000-00" />
-            </div>
-            <div class="form-group">
-              <label>Telefone / WhatsApp (Opcional)</label>
-              <input type="text" id="pacTelefone" placeholder="(85) 99999-9999" />
-            </div>
-            <div class="form-actions">
-              <button type="submit" id="btnSalvarPaciente" class="btn btn-primary">
-                <i data-lucide="plus-circle"></i> Cadastrar Paciente
-              </button>
-            </div>
-          </form>
-        </div>
+            <form id="formPaciente" class="grid-form">
+              <input type="hidden" id="pacEditId" value="" />
+              <div class="form-group">
+                <label>Nome Completo *</label>
+                <input type="text" id="pacNome" placeholder="Ex: Maria da Silva" required />
+              </div>
+              <div class="form-group">
+                <label>CPF</label>
+                <input type="text" id="pacCpf" placeholder="000.000.000-00" />
+              </div>
+              <div class="form-group">
+                <label>Data de Nascimento</label>
+                <input type="date" id="pacNascimento" />
+              </div>
+              <div class="form-group">
+                <label>Telefone / WhatsApp</label>
+                <input type="text" id="pacTelefone" placeholder="(85) 99999-9999" />
+              </div>
+              <div class="form-group">
+                <label>E-mail</label>
+                <input type="email" id="pacEmail" placeholder="paciente@email.com" />
+              </div>
+              <div class="form-group form-span-2">
+                <label>Endereço</label>
+                <input type="text" id="pacEndereco" placeholder="Rua, número, bairro, cidade - UF" />
+              </div>
 
-        <div class="two-col">
-          <!-- Lista de Pacientes -->
+              <!-- Seção de Anamnese Básica (Item 1) -->
+              <div class="form-span-full" style="border-top:1px solid var(--border); padding-top:12px; margin-top:4px;">
+                <h3 style="font-size:0.96rem; color:var(--petrol-800); margin-bottom:10px;">Anamnese Básica</h3>
+              </div>
+
+              <div class="form-group">
+                <label>Histórico Médico</label>
+                <textarea id="pacHistMedico" rows="2" placeholder="Cirurgias prévias, internações, tratamentos..."></textarea>
+              </div>
+              <div class="form-group">
+                <label>Doenças e Condições Sistêmicas</label>
+                <textarea id="pacDoencas" rows="2" placeholder="Hipertensão, diabetes, cardiopatias, gestação..."></textarea>
+              </div>
+              <div class="form-group">
+                <label>Alergias</label>
+                <textarea id="pacAlergias" rows="2" placeholder="Anestésicos, penicilina, dipirona, látex..."></textarea>
+              </div>
+              <div class="form-group">
+                <label>Medicamentos em Uso</label>
+                <textarea id="pacMedicamentos" rows="2" placeholder="Uso contínuo, anticoagulantes, bisfosfonatos..."></textarea>
+              </div>
+              <div class="form-group">
+                <label>Histórico Odontológico</label>
+                <textarea id="pacHistOdonto" rows="2" placeholder="Sensibilidade, sangramento gengival, bruxismo..."></textarea>
+              </div>
+              <div class="form-group">
+                <label>Observações Adicionais</label>
+                <textarea id="pacObsAnamnese" rows="2" placeholder="Outras observações clínicas relevantes..."></textarea>
+              </div>
+
+              <div class="form-actions">
+                <button type="button" id="btnCancelarEditPaciente" class="btn btn-outline hidden">Cancelar Edição</button>
+                <button type="submit" id="btnSalvarPaciente" class="btn btn-primary">
+                  <i data-lucide="save"></i> Salvar Paciente
+                </button>
+              </div>
+            </form>
+          </div>
+
           <div class="card">
             <div class="card-header">
               <h3><i data-lucide="users"></i> Pacientes Cadastrados</h3>
-              <input type="text" id="buscaPaciente" placeholder="Buscar por nome..." style="max-width: 220px;" />
+              <input type="text" id="buscaPaciente" placeholder="Buscar por nome ou CPF..." style="max-width: 260px;" />
             </div>
             <ul id="listaPacientes" class="editable-list"></ul>
           </div>
+        </div>
 
-          <!-- Documentos e Exames do Paciente (R2) -->
-          <div class="card">
+        <!-- Visão 2: Prontuário Completo do Paciente Selecionado (Item 2) -->
+        <div id="viewProntuarioPaciente" class="hidden">
+          <div class="card" style="border-top: 4px solid var(--turquoise-500);">
             <div class="card-header">
-              <h3 id="tituloDocsPaciente"><i data-lucide="file-text"></i> Exames &amp; Documentos (Nuvem R2)</h3>
-              <span class="hint" id="hintDocsPaciente">Selecione um paciente ao lado para gerenciar arquivos.</span>
+              <div>
+                <h2 id="prontNomePaciente">Prontuário do Paciente</h2>
+                <span class="hint" id="prontInfoPaciente"></span>
+              </div>
+              <div class="header-inline">
+                <button type="button" id="btnEditarCadastroPront" class="btn btn-outline btn-sm">
+                  <i data-lucide="edit-3"></i> Editar Cadastro / Anamnese
+                </button>
+                <button type="button" id="btnVoltarListaPacientes" class="btn btn-outline btn-sm">
+                  <i data-lucide="arrow-left"></i> Voltar aos Pacientes
+                </button>
+              </div>
             </div>
 
-            <div id="areaDocsPaciente" class="hidden">
-              <form id="formUploadDocumento" class="grid-form" style="margin-bottom: 18px;">
-                <div class="form-group">
-                  <label>Categoria do Arquivo</label>
-                  <select id="docCategoria">
-                    <option value="radiografia">Radiografia / Exame</option>
-                    <option value="foto_clinica">Foto Clínica</option>
-                    <option value="prontuario">Prontuário / Termo (PDF)</option>
-                    <option value="outros">Outros</option>
-                  </select>
-                </div>
-                <div class="form-group">
-                  <label>Arquivo (JPG, PNG, WEBP ou PDF — máx. 10 MB) *</label>
-                  <input type="file" id="docArquivo" accept="image/jpeg,image/png,image/webp,application/pdf" required />
-                </div>
-                <div class="form-actions">
-                  <button type="submit" id="btnEnviarDocumento" class="btn btn-primary">
-                    <i data-lucide="upload-cloud"></i> Enviar Arquivo Seguro
-                  </button>
-                </div>
-              </form>
+            <!-- Navegação interna do Prontuário -->
+            <div class="prontuario-subnav">
+              <button type="button" class="subtab-btn active" data-subtab="geral">
+                <i data-lucide="clipboard-check"></i> Visão Inicial (Anamnese, Odontograma e Orçamento)
+              </button>
+              <button type="button" class="subtab-btn" data-subtab="evolucao">
+                <i data-lucide="file-clock"></i> Evolução Clínica
+              </button>
+              <button type="button" class="subtab-btn" data-subtab="exames">
+                <i data-lucide="paperclip"></i> Exames &amp; Anexos (R2)
+              </button>
+              <button type="button" class="subtab-btn" data-subtab="documentos">
+                <i data-lucide="file-text"></i> Receitas, Atestados e Declarações
+              </button>
+            </div>
 
-              <div class="table-responsive">
-                <table id="tabelaDocumentos">
-                  <thead>
-                    <tr>
-                      <th>Arquivo</th>
-                      <th>Categoria</th>
-                      <th>Tamanho</th>
-                      <th>Ações</th>
-                    </tr>
-                  </thead>
-                  <tbody id="listaDocumentosBody"></tbody>
-                </table>
+            <!-- SUBABA 1: VISÃO INICIAL (1. Anamnese -> 2. Odontograma -> 3. Orçamento) -->
+            <div id="subtab-geral" class="subtab-panel">
+              <!-- 1. ANAMNESE -->
+              <div class="card" style="box-shadow:none; background:var(--white);">
+                <div class="card-header">
+                  <h3><i data-lucide="heart-pulse"></i> 1. Anamnese do Paciente</h3>
+                </div>
+                <div id="prontAnamneseGrid" class="anamnese-grid"></div>
+              </div>
+
+              <!-- 2. ODONTOGRAMA E PLANEJAMENTO (Item 3) -->
+              <div class="card" style="box-shadow:none; background:var(--white);">
+                <div class="card-header">
+                  <h3><i data-lucide="smile"></i> 2. Odontograma (Sistema FDI) &amp; Planejamento</h3>
+                  <div class="header-inline" style="font-size:0.78rem;">
+                    <span class="status-tag pendente">Pendente</span>
+                    <span class="status-tag andamento">Em andamento</span>
+                    <span class="status-tag realizado">Realizado</span>
+                  </div>
+                </div>
+
+                <!-- Representação Gráfica da Arcada FDI -->
+                <div class="arch-wrapper">
+                  <div class="arch-title">
+                    <span>Arcada Superior (Direita 18–11 | Esquerda 21–28)</span>
+                    <small>Clique no dente para focar na linha abaixo</small>
+                  </div>
+                  <div id="arcadaSuperior" class="arch-row"></div>
+                  <div class="arch-title" style="margin-top:12px;">
+                    <span>Arcada Inferior (Direita 48–41 | Esquerda 31–38)</span>
+                  </div>
+                  <div id="arcadaInferior" class="arch-row"></div>
+                </div>
+
+                <!-- Planejamento por Dente (Número + Descrição + Valor + Status) -->
+                <div id="odontoQuadrantes" class="odonto-quadrantes"></div>
+
+                <!-- Procedimentos Adicionais (sem vínculo com dente específico) -->
+                <div style="border-top:2px solid var(--border); padding-top:16px; margin-top:14px;">
+                  <h4 style="font-family:'Plus Jakarta Sans',sans-serif; color:var(--petrol-800); margin-bottom:10px;">
+                    Adicionar procedimento (geral / sem dente específico)
+                  </h4>
+                  <form id="formProcAdicional" class="grid-form" style="margin-bottom:14px;">
+                    <div class="form-group form-span-2">
+                      <label>Descrição do Procedimento *</label>
+                      <input type="text" id="procAdicDesc" placeholder="Ex: Profilaxia, Clareamento, Placa miorelaxante..." required />
+                    </div>
+                    <div class="form-group">
+                      <label>Valor (R$) *</label>
+                      <input type="number" id="procAdicValor" step="0.01" min="0" placeholder="0,00" required />
+                    </div>
+                    <div class="form-group">
+                      <label>Status *</label>
+                      <select id="procAdicStatus">
+                        <option value="Pendente">Pendente</option>
+                        <option value="Em andamento">Em andamento</option>
+                        <option value="Realizado">Realizado</option>
+                      </select>
+                    </div>
+                    <div class="form-actions">
+                      <button type="submit" class="btn btn-primary btn-sm">
+                        <i data-lucide="plus-circle"></i> Adicionar procedimento
+                      </button>
+                    </div>
+                  </form>
+
+                  <div class="table-responsive">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Procedimento Adicional</th>
+                          <th>Valor</th>
+                          <th>Status</th>
+                          <th>Ações</th>
+                        </tr>
+                      </thead>
+                      <tbody id="listaProcAdicionaisBody"></tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 3. ORÇAMENTO E CONTROLE FINANCEIRO DO PACIENTE (Item 5) -->
+              <div class="card" style="box-shadow:none; background:var(--white);">
+                <div class="card-header">
+                  <h3><i data-lucide="calculator"></i> 3. Orçamento &amp; Controle Financeiro do Paciente</h3>
+                  <span class="hint">Os valores do odontograma e procedimentos adicionais alimentam este orçamento automaticamente.</span>
+                </div>
+
+                <div class="kpi-grid kpi-grid-5">
+                  <div class="kpi-card">
+                    <span>Valor Total Orçado</span>
+                    <strong id="orcTotalOrcado">R$ 0,00</strong>
+                    <small>Soma dos procedimentos</small>
+                  </div>
+                  <div class="kpi-card highlight-green">
+                    <span>Total Pago</span>
+                    <strong id="orcTotalPago">R$ 0,00</strong>
+                    <small>Pagamentos recebidos</small>
+                  </div>
+                  <div class="kpi-card highlight-blue">
+                    <span>Total Utilizado</span>
+                    <strong id="orcTotalUtilizado">R$ 0,00</strong>
+                    <small>Procedimentos realizados/utilizados</small>
+                  </div>
+                  <div class="kpi-card highlight-green">
+                    <span>Saldo Disponível</span>
+                    <strong id="orcSaldoDisponivel">R$ 0,00</strong>
+                    <small>Total Pago − Total Utilizado</small>
+                  </div>
+                  <div class="kpi-card highlight-red">
+                    <span>Valor Ainda Devido</span>
+                    <strong id="orcValorDevido">R$ 0,00</strong>
+                    <small>Orçado − Total Pago</small>
+                  </div>
+                </div>
+
+                <!-- Procedimentos Orçados e Utilização -->
+                <h4 class="demo-section-title">Procedimentos do Orçamento &amp; Utilização</h4>
+                <div class="table-responsive" style="margin-bottom:20px;">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Dente / Tipo</th>
+                        <th>Procedimento</th>
+                        <th>Valor Orçado</th>
+                        <th>Status</th>
+                        <th>Utilização no Orçamento</th>
+                      </tr>
+                    </thead>
+                    <tbody id="orcProcedimentosBody"></tbody>
+                  </table>
+                </div>
+
+                <!-- Registro de Pagamentos do Paciente (Recepção/Admin) -->
+                <div id="boxRegistrarPagamentoPaciente" style="border-top:1px solid var(--border); padding-top:14px; margin-bottom:14px;">
+                  <h4 class="demo-section-title" style="margin-top:0;">Registrar Pagamento do Paciente</h4>
+                  <form id="formPagamentoPaciente" class="grid-form">
+                    <div class="form-group">
+                      <label>Data do Pagamento *</label>
+                      <input type="date" id="pagPacData" required />
+                    </div>
+                    <div class="form-group">
+                      <label>Valor Pago (R$) *</label>
+                      <input type="number" id="pagPacValor" step="0.01" min="0.01" placeholder="0,00" required />
+                    </div>
+                    <div class="form-group">
+                      <label>Forma de Pagamento *</label>
+                      <select id="pagPacForma">
+                        <option value="Pix">Pix</option>
+                        <option value="Dinheiro">Dinheiro</option>
+                        <option value="Débito">Débito</option>
+                        <option value="Crédito">Crédito</option>
+                        <option value="Transferência">Transferência</option>
+                      </select>
+                    </div>
+                    <div class="form-group">
+                      <label>Observação</label>
+                      <input type="text" id="pagPacObs" placeholder="Ex: Entrada, Parcela 1/3..." />
+                    </div>
+                    <div class="form-actions">
+                      <button type="submit" class="btn btn-primary btn-sm">
+                        <i data-lucide="dollar-sign"></i> Registrar Pagamento
+                      </button>
+                    </div>
+                  </form>
+                </div>
+
+                <h4 class="demo-section-title">Histórico de Pagamentos do Paciente</h4>
+                <div class="table-responsive">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Data</th>
+                        <th>Forma</th>
+                        <th>Valor</th>
+                        <th>Observação</th>
+                        <th id="thAcoesPagPac">Ações</th>
+                      </tr>
+                    </thead>
+                    <tbody id="orcPagamentosBody"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            <!-- SUBABA 2: EVOLUÇÃO CLÍNICA (Item 4) -->
+            <div id="subtab-evolucao" class="subtab-panel hidden">
+              <div class="card" style="box-shadow:none; background:var(--white);">
+                <div class="card-header">
+                  <h3 id="tituloFormEvolucao"><i data-lucide="pen-line"></i> Nova Evolução Clínica</h3>
+                </div>
+                <form id="formEvolucao" class="grid-form">
+                  <input type="hidden" id="evolEditId" value="" />
+                  <div class="form-group" style="max-width:220px;">
+                    <label for="evolData">Data do Atendimento *</label>
+                    <input type="date" id="evolData" required />
+                  </div>
+                  <div class="form-group form-span-full">
+                    <label for="evolDescricao">Descrição do Procedimento / Evolução Clínica *</label>
+                    <textarea id="evolDescricao" rows="5" placeholder="Descreva o que foi realizado na sessão, materiais utilizados, medicação intracanal, anestésico, orientações pós-operatórias, etc." required></textarea>
+                  </div>
+                  <div class="form-actions">
+                    <button type="button" id="btnCancelarEditEvol" class="btn btn-outline hidden">Cancelar Edição</button>
+                    <button type="submit" id="btnSalvarEvolucao" class="btn btn-primary">
+                      <i data-lucide="save"></i> Salvar Evolução
+                    </button>
+                  </div>
+                </form>
+              </div>
+
+              <div class="card" style="box-shadow:none; background:var(--white);">
+                <div class="card-header">
+                  <h3><i data-lucide="history"></i> Histórico de Evoluções do Paciente</h3>
+                </div>
+                <div id="listaEvolucoesContainer"></div>
+              </div>
+            </div>
+
+            <!-- SUBABA 3: EXAMES & ANEXOS (R2) -->
+            <div id="subtab-exames" class="subtab-panel hidden">
+              <div class="card" style="box-shadow:none; background:var(--white);">
+                <div class="card-header">
+                  <h3><i data-lucide="upload-cloud"></i> Exames &amp; Documentos Privados (Cloudflare R2)</h3>
+                </div>
+                <form id="formUploadDocumento" class="grid-form" style="margin-bottom: 18px;">
+                  <div class="form-group">
+                    <label>Categoria do Arquivo</label>
+                    <select id="docCategoria">
+                      <option value="radiografia">Radiografia / Exame</option>
+                      <option value="foto_clinica">Foto Clínica</option>
+                      <option value="prontuario">Prontuário / Termo (PDF)</option>
+                      <option value="outros">Outros</option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label>Arquivo (JPG, PNG, WEBP ou PDF — máx. 10 MB) *</label>
+                    <input type="file" id="docArquivo" accept="image/jpeg,image/png,image/webp,application/pdf" required />
+                  </div>
+                  <div class="form-actions">
+                    <button type="submit" id="btnEnviarDocumento" class="btn btn-primary">
+                      <i data-lucide="upload-cloud"></i> Enviar Arquivo Seguro
+                    </button>
+                  </div>
+                </form>
+
+                <div class="table-responsive">
+                  <table id="tabelaDocumentos">
+                    <thead>
+                      <tr>
+                        <th>Arquivo</th>
+                        <th>Categoria</th>
+                        <th>Tamanho</th>
+                        <th>Ações</th>
+                      </tr>
+                    </thead>
+                    <tbody id="listaDocumentosBody"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            <!-- SUBABA 4: DOCUMENTOS & RECEITAS (Preparado para Fase 3) -->
+            <div id="subtab-documentos" class="subtab-panel hidden">
+              <div id="areaDocumentosClinicos">
+                <div class="card" style="box-shadow:none; background:var(--turquoise-50); border-color:#99f6e4;">
+                  <h3><i data-lucide="file-text"></i> Atestados, Declarações, Receituário Comum e Especial</h3>
+                  <p class="hint" style="margin-top:8px;">
+                    Esta área será ativada na <strong>Fase 3</strong> com o Banco de Medicamentos, Atestados e Declarações, Receituário Comum e Receituário Especial em Duas Vias utilizando automaticamente a logo da clínica.
+                  </p>
+                </div>
               </div>
             </div>
           </div>
@@ -426,6 +746,12 @@
               <input type="text" id="sObs" placeholder="Ex: Nota fiscal, vale, etc." />
             </div>
 
+            <div id="boxRetroSaida" class="retro-alert-box hidden">
+              <label for="sJustificativaRetro">⚠️ Saída com data retroativa — Justificativa obrigatória *</label>
+              <input type="text" id="sJustificativaRetro" placeholder="Explique o motivo da saída em data anterior..." />
+              <small>Esta saída ficará como Pendente de aprovação administrativa.</small>
+            </div>
+
             <div class="form-actions">
               <button type="submit" class="btn btn-primary">
                 <i data-lucide="minus-circle"></i> Registrar Saída
@@ -436,7 +762,7 @@
 
         <div class="card">
           <div class="card-header">
-            <h2>Saídas Registradas no Dia</h2>
+            <h2>Saídas Aprovadas Registradas no Dia</h2>
             <div class="summary-pill danger">Total Saídas: <strong id="saidasTotalDia">R$ 0,00</strong></div>
           </div>
           <div class="table-responsive">
@@ -485,13 +811,7 @@
               <h2>Resumo por Modalidade (Dia)</h2>
             </div>
             <table class="simple-table">
-              <thead>
-                <tr>
-                  <th>Modalidade</th>
-                  <th>Bruto</th>
-                  <th>Líquido</th>
-                </tr>
-              </thead>
+              <thead><tr><th>Modalidade</th><th>Bruto</th><th>Líquido</th></tr></thead>
               <tbody id="cxModalidadesBody"></tbody>
             </table>
           </div>
@@ -502,13 +822,7 @@
               <span class="hint">Acumulado geral para saber o perfil dos pacientes</span>
             </div>
             <table class="simple-table">
-              <thead>
-                <tr>
-                  <th>Modalidade Crédito</th>
-                  <th>Qtd. Vendas</th>
-                  <th>Volume Total</th>
-                </tr>
-              </thead>
+              <thead><tr><th>Modalidade Crédito</th><th>Qtd. Vendas</th><th>Volume Total</th></tr></thead>
               <tbody id="cxRankingCreditoBody"></tbody>
             </table>
           </div>
@@ -519,7 +833,7 @@
       <section id="tab-pagamentos" class="tab-content">
         <div class="card">
           <div class="card-header">
-            <h2 id="tituloPagamentosDentista">Fechamento & Repasse aos Dentistas (Dia)</h2>
+            <h2 id="tituloPagamentosDentista">Fechamento &amp; Repasse aos Dentistas (Dia)</h2>
             <span class="hint" id="hintPagamentosDentista">Preencha o valor pago no dia. O sistema impede saldo negativo.</span>
           </div>
           <div class="table-responsive">
@@ -543,9 +857,59 @@
         </div>
       </section>
 
+      <!-- ==================== ABA APROVAÇÕES RETROATIVAS (ADMIN) ==================== -->
+      <section id="tab-aprovacoes" class="tab-content">
+        <div class="card">
+          <div class="card-header">
+            <h2><i data-lucide="shield-check"></i> Lançamentos Retroativos Aguardando Aprovação</h2>
+            <button type="button" id="btnAtualizarAprovacoes" class="btn btn-outline btn-sm">
+              <i data-lucide="refresh-cw"></i> Atualizar Lista
+            </button>
+          </div>
+          <p class="hint" style="margin-bottom:14px;">
+            Lançamentos feitos com data anterior à data do servidor não entram nos cálculos financeiros até serem aprovados pela Administração.
+          </p>
+
+          <h3 class="demo-section-title">Atendimentos Retroativos Pendentes</h3>
+          <div class="table-responsive" style="margin-bottom:20px;">
+            <table>
+              <thead>
+                <tr>
+                  <th>Data Ref.</th>
+                  <th>Paciente</th>
+                  <th>Procedimento</th>
+                  <th>Valor Pago</th>
+                  <th>Responsável / Registro</th>
+                  <th>Justificativa</th>
+                  <th>Ação</th>
+                </tr>
+              </thead>
+              <tbody id="listaAprovAtendBody"></tbody>
+            </table>
+          </div>
+
+          <h3 class="demo-section-title">Saídas Retroativas Pendentes</h3>
+          <div class="table-responsive">
+            <table>
+              <thead>
+                <tr>
+                  <th>Data Ref.</th>
+                  <th>Descrição</th>
+                  <th>Origem</th>
+                  <th>Valor</th>
+                  <th>Responsável / Registro</th>
+                  <th>Justificativa</th>
+                  <th>Ação</th>
+                </tr>
+              </thead>
+              <tbody id="listaAprovSaidaBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
       <!-- ==================== ABA 5: GERAL (ANUAL - PROTEGIDA) ==================== -->
       <section id="tab-geral" class="tab-content">
-        <!-- Barra Superior de Controle -->
         <div class="card-header-bar no-print">
           <div>
             <h2>Painel Gerencial Anual</h2>
@@ -560,7 +924,6 @@
           </div>
         </div>
 
-        <!-- 1. KPIs Estratégicos Anuais -->
         <div class="kpi-grid kpi-grid-5 no-print">
           <div class="kpi-card">
             <span>Receita Líquida Anual</span>
@@ -568,7 +931,7 @@
             <small id="kpiAnualBrutoSub">Bruto: R$ 0,00</small>
           </div>
           <div class="kpi-card highlight-green">
-            <span>Lucro Líquido & Margem</span>
+            <span>Lucro Líquido &amp; Margem</span>
             <strong id="kpiAnualLucro">R$ 0,00</strong>
             <small id="kpiAnualMargem">Margem: 0,0%</small>
           </div>
@@ -589,7 +952,6 @@
           </div>
         </div>
 
-        <!-- 2. Gráfico Visual Comparativo (Receita x Despesa) -->
         <div class="card no-print">
           <div class="card-header">
             <h3>Evolução Mensal: Receita Líquida x Despesas</h3>
@@ -601,13 +963,11 @@
           <div id="graficoAnualBarras" class="bar-chart-wrap"></div>
         </div>
 
-        <!-- 3. Tabela Consolidada Mês a Mês + Total e Média + Botão Demonstrativo -->
         <div class="card no-print">
           <div class="card-header">
             <h3>Fluxo de Caixa Mensal</h3>
-            <span class="hint">Clique em "Demonstrativo" na linha do mês (ou gere o fechamento abaixo) para visualizar o relatório mensal.</span>
+            <span class="hint">Clique em "Demonstrativo" na linha do mês para visualizar o relatório mensal.</span>
           </div>
-
           <div class="table-responsive">
             <table id="tabelaGeralMeses">
               <thead>
@@ -629,11 +989,9 @@
           </div>
         </div>
 
-        <!-- 4. Desempenho Anual por Dentista -->
         <div class="card no-print">
           <div class="card-header">
-            <h3>Desempenho & Repasses por Dentista (Ano)</h3>
-            <span class="hint">Consolidado anual de vendas, comissões, pagamentos realizados e saldos pendentes.</span>
+            <h3>Desempenho &amp; Repasses por Dentista (Ano)</h3>
           </div>
           <div class="table-responsive">
             <table id="tabelaGeralDentistas">
@@ -654,42 +1012,24 @@
           </div>
         </div>
 
-        <!-- 5. Despesas por Categoria e Vendas por Especialidade -->
         <div class="two-col no-print">
           <div class="card">
-            <div class="card-header">
-              <h3>Despesas Detalhadas por Categoria (Ano)</h3>
-            </div>
+            <div class="card-header"><h3>Despesas Detalhadas por Categoria (Ano)</h3></div>
             <table class="simple-table">
-              <thead>
-                <tr>
-                  <th>Categoria</th>
-                  <th>Total Gasto</th>
-                  <th>% das Despesas</th>
-                </tr>
-              </thead>
+              <thead><tr><th>Categoria</th><th>Total Gasto</th><th>% das Despesas</th></tr></thead>
               <tbody id="geralDespesasBody"></tbody>
             </table>
           </div>
 
           <div class="card">
-            <div class="card-header">
-              <h3>Vendas por Especialidade (Ano)</h3>
-            </div>
+            <div class="card-header"><h3>Vendas por Especialidade (Ano)</h3></div>
             <table class="simple-table">
-              <thead>
-                <tr>
-                  <th>Especialidade</th>
-                  <th>Qtd.</th>
-                  <th>Total Líquido</th>
-                </tr>
-              </thead>
+              <thead><tr><th>Especialidade</th><th>Qtd.</th><th>Total Líquido</th></tr></thead>
               <tbody id="geralEspecialidadesBody"></tbody>
             </table>
           </div>
         </div>
 
-        <!-- 6. DEMONSTRATIVO MENSAL DE FECHAMENTO (Última data de cada mês) -->
         <div class="card demo-mensal-card" id="cardDemonstrativoMensal">
           <div class="card-header no-print">
             <div>
@@ -704,7 +1044,6 @@
               </button>
             </div>
           </div>
-
           <div id="demonstrativoMensalConteudo" class="demo-sheet"></div>
         </div>
       </section>
@@ -712,54 +1051,59 @@
       <!-- ==================== ABA 6: CONFIGURAÇÕES (PROTEGIDA) ==================== -->
       <section id="tab-config" class="tab-content no-print">
         <div class="card-header-bar">
-          <h2>Configurações da Clínica & Sistema</h2>
+          <h2>Configurações da Clínica &amp; Sistema</h2>
           <button id="btnBloquearConfig" class="btn btn-sm btn-outline">
             <i data-lucide="lock"></i> Bloquear Aba
           </button>
         </div>
 
-        <!-- Dados da Clínica Contratante -->
+        <!-- Dados da Clínica + Logo (R2) -->
         <div class="card clinic-profile-card">
           <div class="card-header">
-            <h3><i data-lucide="building-2"></i> Dados da Clínica</h3>
-            <span class="hint">Informações institucionais da clínica contratante do sistema.</span>
+            <h3><i data-lucide="building-2"></i> Dados da Clínica &amp; Logomarca</h3>
+            <span class="hint">A logo fica salva no Cloudflare R2 e é inserida automaticamente nos documentos e impressos.</span>
           </div>
+
+          <div class="logo-preview-box">
+            <img id="cfgLogoPreview" src="" alt="Logo da clínica" class="hidden" />
+            <div id="cfgLogoPlaceholder" class="hint">Nenhuma logo enviada ainda.</div>
+            <form id="formUploadLogo" class="inline-form" style="margin-bottom:0; margin-left:auto;">
+              <input type="file" id="cfgLogoArquivo" accept="image/jpeg,image/png,image/webp" required />
+              <button type="submit" id="btnEnviarLogo" class="btn btn-primary btn-sm">
+                <i data-lucide="image"></i> Enviar Logo
+              </button>
+            </form>
+          </div>
+
           <form id="formDadosClinica" class="grid-form">
             <div class="form-group">
               <label>Nome Fantasia / Nome da Clínica *</label>
               <input type="text" id="cfgClinicaNome" placeholder="Ex: Clínica Odontológica Sorriso e Vida" required />
             </div>
-
             <div class="form-group">
               <label>Razão Social</label>
-              <input type="text" id="cfgClinicaRazao" placeholder="Ex: Sorriso e Vida Serviços Odontológicos LTDA" />
+              <input type="text" id="cfgClinicaRazao" placeholder="Razão Social" />
             </div>
-
             <div class="form-group">
               <label>CNPJ ou CPF</label>
               <input type="text" id="cfgClinicaCnpj" placeholder="00.000.000/0001-00" />
             </div>
-
             <div class="form-group">
               <label>CRO da Clínica / Resp. Técnico</label>
               <input type="text" id="cfgClinicaCro" placeholder="Ex: CRO-CE CL-1234" />
             </div>
-
             <div class="form-group">
               <label>Telefone / WhatsApp</label>
               <input type="text" id="cfgClinicaTelefone" placeholder="(85) 99999-9999" />
             </div>
-
             <div class="form-group">
               <label>E-mail Institucional</label>
               <input type="email" id="cfgClinicaEmail" placeholder="contato@suaclinica.com.br" />
             </div>
-
             <div class="form-group form-span-2">
               <label>Endereço Completo</label>
               <input type="text" id="cfgClinicaEndereco" placeholder="Rua, número, bairro, cidade - UF, CEP" />
             </div>
-
             <div class="form-actions">
               <button type="submit" class="btn btn-primary">
                 <i data-lucide="save"></i> Salvar Dados da Clínica
@@ -769,49 +1113,30 @@
         </div>
 
         <div class="two-col">
-          <!-- Prestadores (Acesso: Nome, Usuário e Senha) -->
+          <!-- Alteração da Senha Administrativa (Item 15) -->
           <div class="card">
             <div class="card-header">
-              <h3>Dentistas Prestadores (Acesso)</h3>
+              <h3><i data-lucide="key-round"></i> Alterar Senha Administrativa</h3>
             </div>
-            <form id="formAddDentista" class="inline-form">
-              <input type="hidden" id="cfgDentistaEditId" value="" />
-              <input type="text" id="cfgDentistaNome" placeholder="Nome (ex: Dr. Pedro)" required />
-              <input type="text" id="cfgDentistaUsuario" placeholder="Usuário (ex: dr.pedro)" required />
-              <input type="text" id="cfgDentistaSenha" placeholder="Senha de acesso" required />
-              <button type="submit" id="btnSalvarDentista" class="btn btn-primary">Adicionar</button>
-              <button type="button" id="btnCancelarEditDentista" class="btn btn-outline hidden">Cancelar</button>
+            <form id="formAlterarSenha" class="grid-form">
+              <div class="form-group form-span-full">
+                <label>Senha Atual *</label>
+                <input type="password" id="cfgSenhaAtual" required />
+              </div>
+              <div class="form-group">
+                <label>Nova Senha (mín. 6 caracteres) *</label>
+                <input type="password" id="cfgNovaSenha" minlength="6" required />
+              </div>
+              <div class="form-group">
+                <label>Confirmar Nova Senha *</label>
+                <input type="password" id="cfgConfirmaSenha" minlength="6" required />
+              </div>
+              <div class="form-actions">
+                <button type="submit" id="btnAlterarSenha" class="btn btn-primary">
+                  <i data-lucide="shield-check"></i> Atualizar Senha
+                </button>
+              </div>
             </form>
-            <ul id="listaDentistas" class="editable-list"></ul>
-          </div>
-
-          <!-- Acessos da Recepção (Nome, Usuário e Senha) -->
-          <div class="card">
-            <div class="card-header">
-              <h3>Acessos da Recepção</h3>
-            </div>
-            <form id="formAddRecepcao" class="inline-form">
-              <input type="hidden" id="cfgRecepcaoEditId" value="" />
-              <input type="text" id="cfgRecepcaoNome" placeholder="Nome (ex: Ana Recepção)" required />
-              <input type="text" id="cfgRecepcaoUsuario" placeholder="Usuário (ex: recepcao)" required />
-              <input type="text" id="cfgRecepcaoSenha" placeholder="Senha de acesso" required />
-              <button type="submit" id="btnSalvarRecepcao" class="btn btn-primary">Adicionar</button>
-              <button type="button" id="btnCancelarEditRecepcao" class="btn btn-outline hidden">Cancelar</button>
-            </form>
-            <ul id="listaRecepcao" class="editable-list"></ul>
-          </div>
-
-          <!-- Percentuais por Especialidade (Execução) -->
-          <div class="card">
-            <div class="card-header">
-              <h3>Repasse por Especialidade (%)</h3>
-            </div>
-            <form id="formAddEspecialidade" class="inline-form">
-              <input type="text" id="cfgEspNome" placeholder="Especialidade" required />
-              <input type="number" id="cfgEspPerc" step="0.1" min="0" max="100" placeholder="%" required />
-              <button type="submit" class="btn btn-primary">Adicionar</button>
-            </form>
-            <ul id="listaEspecialidades" class="editable-list"></ul>
           </div>
 
           <!-- Comissão Geral de Venda -->
@@ -829,40 +1154,39 @@
             </div>
           </div>
 
-          <!-- Taxas da Maquineta -->
+          <!-- Dentistas Prestadores -->
           <div class="card">
-            <div class="card-header">
-              <h3>Taxas da Maquineta (%)</h3>
-            </div>
-            <ul id="listaTaxas" class="editable-list"></ul>
-          </div>
-
-          <!-- Categorias de Saída -->
-          <div class="card">
-            <div class="card-header">
-              <h3>Descrições de Saída do Caixa</h3>
-            </div>
-            <form id="formAddSaidaCat" class="inline-form">
-              <input type="text" id="cfgSaidaNome" placeholder="Nova categoria de saída" required />
+            <div class="card-header"><h3>Dentistas Prestadores (Acesso)</h3></div>
+            <form id="formAddDentista" class="inline-form">
+              <input type="text" id="cfgDentistaNome" placeholder="Nome (ex: Dr. Pedro)" required />
+              <input type="text" id="cfgDentistaUsuario" placeholder="Usuário (ex: dr.pedro)" required />
+              <input type="text" id="cfgDentistaSenha" placeholder="Senha de acesso" required />
               <button type="submit" class="btn btn-primary">Adicionar</button>
             </form>
-            <ul id="listaSaidasCat" class="editable-list"></ul>
+            <ul id="listaDentistas" class="editable-list"></ul>
           </div>
-        </div>
 
-        <!-- Integração Nuvem -->
-        <div class="card">
-          <div class="card-header">
-            <h3>Integração Nuvem (Cloudflare D1 + R2)</h3>
+          <!-- Acessos da Recepção -->
+          <div class="card">
+            <div class="card-header"><h3>Acessos da Recepção</h3></div>
+            <form id="formAddRecepcao" class="inline-form">
+              <input type="text" id="cfgRecepcaoNome" placeholder="Nome (ex: Ana Recepção)" required />
+              <input type="text" id="cfgRecepcaoUsuario" placeholder="Usuário (ex: recepcao)" required />
+              <input type="text" id="cfgRecepcaoSenha" placeholder="Senha de acesso" required />
+              <button type="submit" class="btn btn-primary">Adicionar</button>
+            </form>
+            <ul id="listaRecepcao" class="editable-list"></ul>
           </div>
-          <div class="grid-form">
-            <div class="form-group">
-              <label>URL da API (Cloudflare Workers)</label>
-              <input type="url" id="cfgGasUrl" readonly />
-            </div>
-            <div class="form-actions">
-              <button id="btnSalvarSistema" class="btn btn-primary">Verificar Conexão</button>
-            </div>
+
+          <!-- Especialidades & Taxas -->
+          <div class="card">
+            <div class="card-header"><h3>Repasse por Especialidade (%)</h3></div>
+            <ul id="listaEspecialidades" class="editable-list"></ul>
+          </div>
+
+          <div class="card">
+            <div class="card-header"><h3>Taxas da Maquineta (%)</h3></div>
+            <ul id="listaTaxas" class="editable-list"></ul>
           </div>
         </div>
       </section>
@@ -873,7 +1197,7 @@
   <div id="modalSenha" class="modal-backdrop hidden no-print">
     <div class="modal-box">
       <h3><i data-lucide="shield-alert"></i> Acesso Restrito</h3>
-      <p>Digite a senha administrativa para acessar esta área:</p>
+      <p>Digite sua senha administrativa para acessar esta área:</p>
       <input type="password" id="inputSenhaAcesso" placeholder="Senha..." />
       <p id="erroSenha" class="error-text hidden">Senha incorreta. Tente novamente.</p>
       <div class="modal-actions">
@@ -903,7 +1227,39 @@
     </div>
   </div>
 
+  <!-- Modal de Utilização de Procedimento no Orçamento (Item 5) -->
+  <div id="modalUtilizarProc" class="modal-backdrop hidden no-print">
+    <div class="modal-box">
+      <h3><i data-lucide="check-circle-2"></i> Registrar Utilização no Orçamento</h3>
+      <p class="hint" id="utilProcTitulo"></p>
+      <form id="formUtilizarProc" style="display:flex; flex-direction:column; gap:10px;">
+        <input type="hidden" id="utilProcId" value="" />
+        <div class="form-group">
+          <label>Dentista Responsável *</label>
+          <select id="utilProcDentista" required></select>
+        </div>
+        <div class="form-group">
+          <label>Especialidade *</label>
+          <select id="utilProcEsp" required></select>
+        </div>
+        <div class="form-group">
+          <label>Valor Utilizado (R$) *</label>
+          <input type="number" id="utilProcValor" step="0.01" min="0" required />
+        </div>
+        <div class="form-group">
+          <label>Data da Realização *</label>
+          <input type="date" id="utilProcData" required />
+        </div>
+        <div class="modal-actions">
+          <button type="button" id="btnCancelarUtilProc" class="btn btn-outline">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Confirmar Utilização</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <script src="api.js"></script>
+  <script src="prontuario.js"></script>
   <script src="script.js"></script>
 </body>
 </html>

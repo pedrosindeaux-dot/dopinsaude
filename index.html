@@ -180,6 +180,9 @@
       <button class="tab-btn" data-tab="pacientes" id="navTabPacientes">
         <i data-lucide="folder-heart"></i> Pacientes &amp; Prontuário
       </button>
+      <button class="tab-btn hidden" data-tab="medicamentos" id="navTabMedicamentos">
+        <i data-lucide="pill"></i> Banco de Medicamentos
+      </button>
       <button class="tab-btn" data-tab="saidas" id="navTabSaidas">
         <i data-lucide="arrow-up-circle"></i> Saídas
       </button>
@@ -700,6 +703,119 @@
                 </div>
               </div>
             </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ==================== ABA BANCO DE MEDICAMENTOS (D1) ==================== -->
+      <section id="tab-medicamentos" class="tab-content">
+        <div class="card" id="cardFormMedicamento">
+          <div class="card-header">
+            <h2 id="tituloFormMed"><i data-lucide="pill"></i> Adicionar Medicamento ao Banco</h2>
+            <span class="hint">Cadastro centralizado da clínica (salvo no Cloudflare D1) usado nos receituários comum e especial.</span>
+          </div>
+
+          <form id="formMedicamento" class="grid-form">
+            <input type="hidden" id="medEditId" value="" />
+            <div class="form-group">
+              <label>Nome Comercial ou Genérico *</label>
+              <input type="text" id="medNome" placeholder="Ex: Amoxicilina" required />
+            </div>
+            <div class="form-group">
+              <label>Princípio Ativo</label>
+              <input type="text" id="medPrincipio" placeholder="Ex: Amoxicilina tri-hidratada" />
+            </div>
+            <div class="form-group">
+              <label>Concentração</label>
+              <input type="text" id="medConcentracao" placeholder="Ex: 500 mg" />
+            </div>
+            <div class="form-group">
+              <label>Forma Farmacêutica</label>
+              <input type="text" id="medForma" placeholder="Ex: Cápsula, Comprimido, Solução..." />
+            </div>
+            <div class="form-group">
+              <label>Apresentação</label>
+              <input type="text" id="medApresentacao" placeholder="Ex: Caixa com 21 cápsulas" />
+            </div>
+            <div class="form-group">
+              <label>Via de Administração</label>
+              <input type="text" id="medVia" placeholder="Ex: Uso oral" />
+            </div>
+            <div class="form-group">
+              <label>Categoria</label>
+              <select id="medCategoria">
+                <option value="Analgésicos">Analgésicos</option>
+                <option value="Anti-inflamatórios">Anti-inflamatórios</option>
+                <option value="Antibióticos">Antibióticos</option>
+                <option value="Antissépticos">Antissépticos</option>
+                <option value="Anestésicos">Anestésicos</option>
+                <option value="Medicamentos sujeitos a controle especial">Medicamentos sujeitos a controle especial</option>
+                <option value="Outros">Outros</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Duração Habitual</label>
+              <input type="text" id="medDuracao" placeholder="Ex: 7 dias" />
+            </div>
+            <div class="form-group">
+              <label>Quantidade Sugerida</label>
+              <input type="text" id="medQuantidade" placeholder="Ex: 1 caixa" />
+            </div>
+            <div class="form-group form-span-2">
+              <label>Posologia Predefinida (Modelo)</label>
+              <input type="text" id="medPosologia" placeholder="Ex: Tomar 1 cápsula de 8 em 8 horas..." />
+            </div>
+            <div class="form-group form-span-full">
+              <label>Orientações Adicionais</label>
+              <input type="text" id="medOrientacoes" placeholder="Ex: Tomar após as refeições..." />
+            </div>
+            <div class="form-group form-span-full">
+              <label class="remember-row" style="margin:0;">
+                <input type="checkbox" id="medControleEspecial" />
+                <span>Medicamento sujeito a retenção / controle especial (2 vias)</span>
+              </label>
+            </div>
+
+            <div class="form-actions">
+              <button type="button" id="btnCancelarEditMed" class="btn btn-outline hidden">Cancelar Edição</button>
+              <button type="submit" id="btnSalvarMed" class="btn btn-primary">
+                <i data-lucide="save"></i> Salvar Medicamento
+              </button>
+            </div>
+          </form>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <h3><i data-lucide="database"></i> Medicamentos Cadastrados na Clínica</h3>
+            <div class="header-inline">
+              <input type="text" id="buscaMedicamento" placeholder="Pesquisar nome ou princípio ativo..." style="max-width:230px;" />
+              <select id="filtroCatMedicamento">
+                <option value="">Todas as categorias</option>
+                <option value="Analgésicos">Analgésicos</option>
+                <option value="Anti-inflamatórios">Anti-inflamatórios</option>
+                <option value="Antibióticos">Antibióticos</option>
+                <option value="Antissépticos">Antissépticos</option>
+                <option value="Anestésicos">Anestésicos</option>
+                <option value="Medicamentos sujeitos a controle especial">Medicamentos sujeitos a controle especial</option>
+                <option value="Outros">Outros</option>
+              </select>
+            </div>
+          </div>
+          <div class="table-responsive">
+            <table>
+              <thead>
+                <tr>
+                  <th>Medicamento / Princípio Ativo</th>
+                  <th>Concentração / Apres.</th>
+                  <th>Categoria</th>
+                  <th>Via</th>
+                  <th>Posologia Modelo</th>
+                  <th>Ações</th>
+                </tr>
+              </thead>
+              <tbody id="tabelaMedicamentosBody"></tbody>
+            </table>
           </div>
         </div>
       </section>
@@ -1259,6 +1375,8 @@
   </div>
 
   <script src="api.js"></script>
+  <script src="medicamentos.js"></script>
+  <script src="documentos.js"></script>
   <script src="prontuario.js"></script>
   <script src="script.js"></script>
 </body>

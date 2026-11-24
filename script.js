@@ -209,6 +209,7 @@ async function carregarDadosDaNuvem() {
     });
 
     if (c.logo_r2_key) await carregarLogoClinica();
+    if (window.MedicamentosModule) await window.MedicamentosModule.carregar();
 
     atualizarCabecalhoClinica();
     popularSelects();
@@ -248,6 +249,7 @@ document.addEventListener('DOMContentLoaded', () => {
   configurarFormularios();
   configurarConexao();
   if (window.ProntuarioModule) window.ProntuarioModule.init();
+  if (window.MedicamentosModule) window.MedicamentosModule.init();
   verificarSessaoSalva();
 });
 
@@ -485,6 +487,7 @@ async function iniciarSessao(dados, salvarNoStorage = false) {
 
   const tabMapa = document.getElementById('navTabMapa');
   const tabPacientes = document.getElementById('navTabPacientes');
+  const tabMedicamentos = document.getElementById('navTabMedicamentos');
   const tabSaidas = document.getElementById('navTabSaidas');
   const tabCaixa = document.getElementById('navTabCaixa');
   const tabPagamentos = document.getElementById('navTabPagamentos');
@@ -501,6 +504,7 @@ async function iniciarSessao(dados, salvarNoStorage = false) {
   if (dados.perfil === 'Profissional') {
     tabMapa.classList.remove('hidden');
     tabPagamentos.classList.remove('hidden');
+    tabMedicamentos?.classList.remove('hidden');
     tabSaidas.classList.add('hidden');
     tabCaixa.classList.add('hidden');
     tabAprovacoes?.classList.add('hidden');
@@ -516,6 +520,7 @@ async function iniciarSessao(dados, salvarNoStorage = false) {
     tabSaidas.classList.remove('hidden');
     tabCaixa.classList.remove('hidden');
     tabPagamentos.classList.add('hidden');
+    tabMedicamentos?.classList.add('hidden');
     tabAprovacoes?.classList.add('hidden');
     tabGeral.classList.add('hidden');
     tabConfig.classList.add('hidden');
@@ -530,6 +535,7 @@ async function iniciarSessao(dados, salvarNoStorage = false) {
     tabCaixa.classList.remove('hidden');
     tabPagamentos.classList.remove('hidden');
     tabAprovacoes?.classList.remove('hidden');
+    tabMedicamentos?.classList.remove('hidden');
     tabGeral.classList.remove('hidden');
     tabConfig.classList.remove('hidden');
 

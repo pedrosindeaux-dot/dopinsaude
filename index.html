@@ -1021,6 +1021,22 @@
               <tbody id="listaAprovSaidaBody"></tbody>
             </table>
           </div>
+
+          <h3 class="demo-section-title">Exclusões de Pacientes Pendentes</h3>
+          <div class="table-responsive">
+            <table>
+              <thead>
+                <tr>
+                  <th>Paciente</th>
+                  <th>CPF</th>
+                  <th>Solicitado por / Data</th>
+                  <th>Motivo da Exclusão</th>
+                  <th>Ação</th>
+                </tr>
+              </thead>
+              <tbody id="listaAprovPacBody"></tbody>
+            </table>
+          </div>
         </div>
       </section>
 
@@ -1297,6 +1313,11 @@
           <!-- Especialidades & Taxas -->
           <div class="card">
             <div class="card-header"><h3>Repasse por Especialidade (%)</h3></div>
+            <form id="formAddEspecialidade" class="inline-form">
+              <input type="text" id="cfgEspNome" placeholder="Nova especialidade" required />
+              <input type="number" id="cfgEspPerc" step="0.1" min="0" max="100" placeholder="%" required />
+              <button type="submit" class="btn btn-primary">Adicionar</button>
+            </form>
             <ul id="listaEspecialidades" class="editable-list"></ul>
           </div>
 

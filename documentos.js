@@ -599,10 +599,11 @@
     } else if (tipo === 'receita_comum') {
       htmlCorpo = montarCorpoReceita(conteudo, '');
     } else if (tipo === 'receita_especial') {
-      htmlCorpo =
-        montarCorpoReceita(conteudo, '1ª VIA — Retenção da farmácia ou estabelecimento dispensador') +
-        '<div class="page-break"></div>' +
-        montarCorpoReceita(conteudo, '2ª VIA — Orientação do paciente');
+      htmlCorpo = `
+        <div class="landscape-two-cols">
+          ${montarCorpoReceita(conteudo, '1ª VIA — Retenção da farmácia ou estabelecimento dispensador')}
+          ${montarCorpoReceita(conteudo, '2ª VIA — Orientação do paciente')}
+        </div>`;
     }
 
     const win = window.open('', '_blank', 'width=900,height=750');
@@ -631,10 +632,21 @@
         .doc-footer { display: flex; justify-content: space-between; align-items: flex-end; margin-top: 52px; font-size: 0.88rem; }
         .sig-box { text-align: center; min-width: 240px; }
         .sig-line { border-top: 1px solid #334155; margin-bottom: 6px; }
+        .landscape-two-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; max-width: 1120px; margin: 0 auto; align-items: stretch; }
+        .landscape-two-cols .page-sheet { max-width: 100%; margin: 0; padding: 20px; font-size: 0.86rem; display: flex; flex-direction: column; justify-content: space-between; }
+        .landscape-two-cols .doc-brand h2 { font-size: 1.05rem; }
+        .landscape-two-cols .doc-title-bar h3 { font-size: 0.98rem; }
+        .landscape-two-cols .doc-footer { margin-top: 28px; }
         .page-break { page-break-before: always; }
         .print-bar { text-align: center; margin-bottom: 16px; }
         .print-bar button { background: #14b8a6; color: #fff; border: none; padding: 10px 20px; border-radius: 7px; font-weight: 600; cursor: pointer; font-size: 0.92rem; }
-        @media print { body { background: #fff; padding: 0; } .print-bar { display: none; } .page-sheet { border: none; margin: 0; padding: 16px; } }
+        ${tipo === 'receita_especial' ? '@page { size: A4 landscape; margin: 8mm; }' : '@page { size: A4 portrait; margin: 12mm; }'}
+        @media print {
+          body { background: #fff; padding: 0; }
+          .print-bar { display: none; }
+          .page-sheet { border: 1px solid #cbd5e1; margin: 0; padding: 14px; }
+          .landscape-two-cols { max-width: 100%; gap: 12px; }
+        }
       </style></head><body>
       <div class="print-bar"><button onclick="window.print()">Imprimir / Salvar em PDF</button></div>
       ${htmlCorpo}

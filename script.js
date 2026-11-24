@@ -27,7 +27,7 @@ window.db = {
   saidas: [],
   pagamentosDentistas: {},
   pacientes: [],
-  aprovacoes: { atendimentos: [], saidas: [] }
+  aprovacoes: { atendimentos: [], saidas: [], pacientes: [] }
 };
 
 window.sessaoAtual = null;
@@ -126,7 +126,7 @@ async function carregarDadosDaNuvem() {
       DopinAPI.listarPacientes().catch(() => ({ pacientes: [] }))
     ];
     if (window.sessaoAtual?.perfil === 'Administração') {
-      promessas.push(DopinAPI.listarAprovacoes().catch(() => ({ atendimentos: [], saidas: [] })));
+      promessas.push(DopinAPI.listarAprovacoes().catch(() => ({ atendimentos: [], saidas: [], pacientes: [] })));
     }
 
     const [res, resPac, resAprov] = await Promise.all(promessas);
@@ -135,7 +135,8 @@ async function carregarDadosDaNuvem() {
     if (resAprov) {
       window.db.aprovacoes = {
         atendimentos: resAprov.atendimentos || [],
-        saidas: resAprov.saidas || []
+        saidas: resAprov.saidas || [],
+        pacientes: resAprov.pacientes || []
       };
     }
 
@@ -651,14 +652,13 @@ function abrirModalSenha() {
 
 // ==================== LISTAS SUSPENSAS E CÁLCULOS (COM EXCEÇÃO ORTO) ====================
 function popularSelects() {
-  const dentistasHTML = window.db.config.dentistas.length
-    ? window.db.config.dentistas
-        .map((dent) => `<option value="${window.escapeHTML(dent.id)}">${window.escapeHTML(dent.nome)}</option>`)
-        .join('')
-    : '<option value="">Cadastre um dentista em Configurações</option>';
+  const opcoesDentistas = window.db.config.dentistas
+    .map((dent) => `<option value="${window.escapeHTML(dent.id)}">${window.escapeHTML(dent.nome)}</option>`)
+    .join('');
+  const dentistasComAusente = `<option value="AUSENTE">Ausente (Sem comissão)</option>${opcoesDentistas}`;
 
-  document.getElementById('mDentistaVenda').innerHTML = dentistasHTML;
-  document.getElementById('mDentistaExec').innerHTML = dentistasHTML;
+  document.getElementById('mDentistaVenda').innerHTML = dentistasComAusente;
+  document.getElementById('mDentistaExec').innerHTML = dentistasComAusente;
   document.getElementById('sDentista').innerHTML =
     `<option value="">-- Nenhum (Despesa Geral) --</option>${window.db.config.dentistas
       .map((dent) => `<option value="${window.escapeHTML(dent.id)}">${window.escapeHTML(dent.nome)}</option>`)
@@ -699,16 +699,19 @@ function calcularValoresMapa() {
   const formaItem = window.db.config.taxas.find((item) => item.id === formaId) || { taxa: 0, nome: '' };
   const percVenda = Number(window.db.config.percentualVenda ?? 5);
 
+  const dentVendaId = document.getElementById('mDentistaVenda')?.value || '';
+  const dentExecId = document.getElementById('mDentistaExec')?.value || '';
+
   const fatorLiquido = 1 - formaItem.taxa / 100;
   const valorFinal = valorPago * fatorLiquido;
-  const comissaoVenda = valorFinal * (percVenda / 100);
+  const comissaoVenda = dentVendaId === 'AUSENTE' ? 0 : valorFinal * (percVenda / 100);
 
   // Exceção da Ortodontia (Item 11): ORTO não sofre desconto de maquineta na comissão de execução
   const espNorm = String(espNome || '').trim().toUpperCase();
   const isOrto = espNorm === 'ORTO' || espNorm === 'ORTODONTIA';
   const valorExecLiquido = isOrto ? valorExecBruto : valorExecBruto * fatorLiquido;
   const baseLiquidaExec = Math.max(0, valorExecLiquido - valorLab);
-  const comissaoExec = baseLiquidaExec * (espItem.percentual / 100);
+  const comissaoExec = dentExecId === 'AUSENTE' ? 0 : baseLiquidaExec * (espItem.percentual / 100);
 
   return {
     espNome,
@@ -754,7 +757,7 @@ function configurarFormularios() {
     atualizarPreviewMapa();
   });
 
-  ['mEspecialidade', 'mFormaPagamento', 'mValorLab'].forEach((campoId) => {
+  ['mEspecialidade', 'mFormaPagamento', 'mValorLab', 'mDentistaVenda', 'mDentistaExec'].forEach((campoId) => {
     const el = document.getElementById(campoId);
     el.addEventListener('change', atualizarPreviewMapa);
     el.addEventListener('input', atualizarPreviewMapa);
@@ -973,6 +976,20 @@ function configurarFormularios() {
     }
   });
 
+  document.getElementById('formAddEspecialidade')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const nome = document.getElementById('cfgEspNome').value.trim().toUpperCase();
+    const percentual = Number(document.getElementById('cfgEspPerc').value) || 0;
+    if (!nome) return;
+    try {
+      await DopinAPI.criarEspecialidade({ nome, percentual });
+      e.target.reset();
+      await carregarDadosDaNuvem();
+    } catch (err) {
+      alert(`Erro ao adicionar especialidade: ${err.message}`);
+    }
+  });
+
   document.getElementById('btnSalvarComissaoVenda').addEventListener('click', async () => {
     const novoPerc = Number(document.getElementById('cfgComissaoVenda').value);
     const percentualVenda = Number.isNaN(novoPerc) || novoPerc < 0 ? 0 : novoPerc;
@@ -1000,6 +1017,7 @@ function renderizarTudo() {
 }
 
 function nomeDentista(dentistaId) {
+  if (dentistaId === 'AUSENTE') return 'Ausente';
   const encontrado = window.db.config.dentistas.find((item) => item.id === dentistaId);
   return encontrado ? encontrado.nome : 'Removido';
 }
@@ -1093,7 +1111,8 @@ window.excluirSaida = async function (saidaId) {
 function renderizarAprovacoes() {
   const atendPend = window.db.aprovacoes?.atendimentos || [];
   const saidasPend = window.db.aprovacoes?.saidas || [];
-  const total = atendPend.length + saidasPend.length;
+  const pacPend = window.db.aprovacoes?.pacientes || [];
+  const total = atendPend.length + saidasPend.length + pacPend.length;
 
   const badge = document.getElementById('badgeAprovacoes');
   if (badge) {
@@ -1145,6 +1164,27 @@ function renderizarAprovacoes() {
           )
           .join('')
       : '<tr><td colspan="7">Nenhuma saída retroativa aguardando aprovação.</td></tr>';
+  }
+
+  const tbodyPac = document.getElementById('listaAprovPacBody');
+  if (tbodyPac) {
+    tbodyPac.innerHTML = pacPend.length
+      ? pacPend
+          .map(
+            (p) => `
+          <tr>
+            <td><strong>${window.escapeHTML(p.nome)}</strong></td>
+            <td>${window.escapeHTML(p.cpf || '-')}</td>
+            <td>${window.escapeHTML(p.solicitado_por_nome || '-')}<br><small class="hint">${window.escapeHTML(p.exclusao_solicitada_em || '')}</small></td>
+            <td>${window.escapeHTML(p.motivo_exclusao || '-')}</td>
+            <td class="item-actions">
+              <button type="button" class="btn-danger-sm" onclick="decidirAprovacao('paciente','${window.escapeHTML(p.id)}','aprovado')">Aprovar Exclusão</button>
+              <button type="button" class="btn-edit-sm" onclick="decidirAprovacao('paciente','${window.escapeHTML(p.id)}','rejeitado')">Rejeitar</button>
+            </td>
+          </tr>`
+          )
+          .join('')
+      : '<tr><td colspan="5">Nenhuma solicitação de exclusão de paciente pendente.</td></tr>';
   }
 }
 
@@ -1498,11 +1538,71 @@ function renderizarConfig() {
       .join('') || '<li><span class="hint">Nenhuma recepção cadastrada.</span></li>';
 
   document.getElementById('listaEspecialidades').innerHTML =
-    window.db.config.especialidades.map((e) => `<li><span><strong>${window.escapeHTML(e.nome)}</strong></span><span><strong>${Number(e.percentual) || 0}%</strong></span></li>`).join('');
+    window.db.config.especialidades
+      .map(
+        (e) => `
+        <li>
+          <span><strong>${window.escapeHTML(e.nome)}</strong></span>
+          <div class="item-actions">
+            <input type="number" step="0.1" min="0" max="100" class="inline-edit"
+              value="${Number(e.percentual) || 0}"
+              onchange="atualizarEspecialidadeNuvem('${window.escapeHTML(e.id)}', this.value)" /> %
+            <button type="button" class="btn-danger-sm" onclick="excluirEspecialidadeNuvem('${window.escapeHTML(e.id)}')">Excluir</button>
+          </div>
+        </li>`
+      )
+      .join('');
 
   document.getElementById('listaTaxas').innerHTML =
-    window.db.config.taxas.map((t) => `<li><span><strong>${window.escapeHTML(t.nome)}</strong></span><span><strong>${Number(t.taxa) || 0}%</strong></span></li>`).join('');
+    window.db.config.taxas
+      .map(
+        (t) => `
+        <li>
+          <span><strong>${window.escapeHTML(t.nome)}</strong></span>
+          <div class="item-actions">
+            <input type="number" step="0.1" min="0" max="100" class="inline-edit"
+              value="${Number(t.taxa) || 0}"
+              onchange="atualizarTaxaNuvem('${window.escapeHTML(t.dbId)}', this.value)" /> %
+          </div>
+        </li>`
+      )
+      .join('');
 }
+
+window.atualizarEspecialidadeNuvem = async function (id, novoValor) {
+  const perc = Math.max(0, Number(novoValor) || 0);
+  try {
+    await DopinAPI.atualizarEspecialidade(id, perc);
+    const esp = window.db.config.especialidades.find((e) => e.id === id);
+    if (esp) esp.percentual = perc;
+    atualizarPreviewMapa();
+  } catch (err) {
+    alert(`Erro ao atualizar especialidade: ${err.message}`);
+  }
+};
+
+window.excluirEspecialidadeNuvem = async function (id) {
+  if (!confirm('Deseja excluir esta especialidade?')) return;
+  try {
+    await DopinAPI.excluirEspecialidade(id);
+    await carregarDadosDaNuvem();
+  } catch (err) {
+    alert(`Erro ao excluir especialidade: ${err.message}`);
+  }
+};
+
+window.atualizarTaxaNuvem = async function (dbId, novaTaxa) {
+  const taxa = Math.max(0, Number(novaTaxa) || 0);
+  try {
+    await DopinAPI.atualizarTaxa(dbId, taxa);
+    const tx = window.db.config.taxas.find((t) => t.dbId === dbId);
+    if (tx) tx.taxa = taxa;
+    popularSelects();
+    atualizarPreviewMapa();
+  } catch (err) {
+    alert(`Erro ao atualizar taxa da maquineta: ${err.message}`);
+  }
+};
 
 window.removerUsuarioNuvem = async function (id) {
   if (!confirm('Desativar este acesso?')) return;

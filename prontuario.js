@@ -290,10 +290,22 @@
           .filter(Boolean)
           .join(' • ');
 
+        const perfil = window.sessaoAtual?.perfil;
+        const pendenteExcl = p.status_exclusao === 'pendente';
+        const badgeExcl = pendenteExcl
+          ? '<span class="status-tag pendente" style="margin-left:6px;">Exclusão pendente</span>'
+          : '';
+        const btnExcluir =
+          perfil === 'Administração'
+            ? `<button type="button" class="btn-danger-sm" onclick="ProntuarioModule.excluirPaciente('${window.escapeHTML(p.id)}', '${window.escapeHTML(p.nome)}')">Excluir</button>`
+            : perfil === 'Recepção' && !pendenteExcl
+            ? `<button type="button" class="btn-danger-sm" onclick="ProntuarioModule.excluirPaciente('${window.escapeHTML(p.id)}', '${window.escapeHTML(p.nome)}')">Solicitar Exclusão</button>`
+            : '';
+
         return `
           <li>
             <div>
-              <strong>${window.escapeHTML(p.nome)}</strong>
+              <strong>${window.escapeHTML(p.nome)}</strong>${badgeExcl}
               ${detalhes ? `<br><small class="hint">${detalhes}</small>` : ''}
             </div>
             <div class="item-actions">
@@ -303,6 +315,7 @@
               <button type="button" class="btn-edit-sm" onclick="ProntuarioModule.editarPaciente('${window.escapeHTML(p.id)}')">
                 Editar
               </button>
+              ${btnExcluir}
             </div>
           </li>`;
       })
@@ -333,6 +346,29 @@
     document.getElementById('btnCancelarEditPaciente')?.classList.remove('hidden');
     if (typeof lucide !== 'undefined') lucide.createIcons();
     document.getElementById('cardCadastroPaciente')?.scrollIntoView({ behavior: 'smooth' });
+  }
+
+  async function excluirPaciente(pacienteId, nomePaciente) {
+    const perfil = window.sessaoAtual?.perfil;
+    if (perfil === 'Profissional') return;
+
+    try {
+      if (perfil === 'Administração') {
+        if (!confirm(`Tem certeza que deseja excluir permanentemente o paciente "${nomePaciente}" e todo o seu prontuário?`)) return;
+        await DopinAPI.excluirPaciente(pacienteId);
+        alert('Paciente excluído com sucesso.');
+      } else {
+        const motivo = prompt(`Informe o motivo para solicitar a exclusão do paciente "${nomePaciente}" (requer aprovação administrativa):`);
+        if (!motivo || !motivo.trim()) return;
+        await DopinAPI.excluirPaciente(pacienteId, motivo.trim());
+        alert('Solicitação de exclusão enviada para aprovação da Administração.');
+      }
+      const lista = await DopinAPI.listarPacientes();
+      window.db.pacientes = lista.pacientes || [];
+      renderizarListaPacientes();
+    } catch (err) {
+      alert(`Erro ao processar exclusão do paciente: ${err.message}`);
+    }
   }
 
   // ==================== ABRIR PRONTUÁRIO ====================
@@ -782,6 +818,7 @@
     renderizarListaPacientes,
     abrirProntuario,
     editarPaciente,
+    excluirPaciente,
     focarDente,
     salvarDente,
     salvarProcedimentoAdicional,

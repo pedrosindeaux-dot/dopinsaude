@@ -75,6 +75,16 @@ const DopinAPI = {
       reader.readAsDataURL(blob);
     });
   },
+  criarEspecialidade(payload) { return this.request('/config/especialidades', { method: 'POST', body: payload }); },
+  atualizarEspecialidade(id, percentual) {
+    return this.request(`/config/especialidades/${encodeURIComponent(id)}`, { method: 'PUT', body: { percentual } });
+  },
+  excluirEspecialidade(id) {
+    return this.request(`/config/especialidades/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  },
+  atualizarTaxa(id, taxa) {
+    return this.request(`/config/taxas/${encodeURIComponent(id)}`, { method: 'PUT', body: { taxa } });
+  },
   criarUsuario(payload) { return this.request('/usuarios', { method: 'POST', body: payload }); },
   desativarUsuario(id) { return this.request(`/usuarios/${encodeURIComponent(id)}`, { method: 'DELETE' }); },
 
@@ -82,6 +92,9 @@ const DopinAPI = {
   listarPacientes() { return this.request('/pacientes'); },
   criarPaciente(payload) { return this.request('/pacientes', { method: 'POST', body: payload }); },
   atualizarPaciente(id, payload) { return this.request(`/pacientes/${encodeURIComponent(id)}`, { method: 'PUT', body: payload }); },
+  excluirPaciente(id, motivo = '') {
+    return this.request(`/pacientes/${encodeURIComponent(id)}`, { method: 'DELETE', body: motivo ? { motivo } : null });
+  },
 
   // Odontograma / Procedimentos / Utilização do Orçamento
   listarProcedimentos(pacienteId) { return this.request(`/pacientes/${encodeURIComponent(pacienteId)}/procedimentos`); },

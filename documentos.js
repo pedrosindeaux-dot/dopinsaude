@@ -612,7 +612,7 @@
       return;
     }
 
-    win.document.write(`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>Documento — DôPin Saúde</title>
+    win.document.write(`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Documento — DôPin Saúde</title>
       <style>
         body { font-family: 'Segoe UI', Arial, sans-serif; color: #0f172a; margin: 0; padding: 24px; background: #f8fafc; }
         .page-sheet { background: #fff; max-width: 780px; margin: 0 auto 24px; padding: 32px; border: 1px solid #cbd5e1; border-radius: 8px; }
@@ -641,6 +641,21 @@
         .print-bar { text-align: center; margin-bottom: 16px; }
         .print-bar button { background: #14b8a6; color: #fff; border: none; padding: 10px 20px; border-radius: 7px; font-weight: 600; cursor: pointer; font-size: 0.92rem; }
         ${tipo === 'receita_especial' ? '@page { size: A4 landscape; margin: 8mm; }' : '@page { size: A4 portrait; margin: 12mm; }'}
+        .med-title { flex-wrap: wrap; gap: 4px 12px; }
+        .doc-brand { flex-wrap: wrap; }
+        .doc-brand img { max-width: 100%; }
+        @media screen and (max-width: 760px) {
+          body { padding: 10px; }
+          .page-sheet { padding: 18px 14px; margin-bottom: 14px; }
+          .landscape-two-cols { grid-template-columns: 1fr; }
+          .doc-brand h2 { font-size: 1.05rem; }
+          .doc-title-bar h3 { font-size: 0.98rem; }
+          .atestado-body { font-size: 0.95rem; margin: 18px 0 30px; text-align: left; }
+          .doc-footer { flex-direction: column; align-items: stretch; gap: 26px; margin-top: 32px; }
+          .sig-box { min-width: 0; }
+          .print-bar { position: sticky; top: 0; z-index: 5; padding: 6px 0; background: #f8fafc; }
+          .print-bar button { width: 100%; padding: 14px; font-size: 1rem; }
+        }
         @media print {
           body { background: #fff; padding: 0; }
           .print-bar { display: none; }

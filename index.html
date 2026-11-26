@@ -231,7 +231,30 @@
               <input type="hidden" id="mPacienteId" value="" />
               <input type="text" id="mPacienteBusca" placeholder="Digite nome ou CPF para selecionar..." autocomplete="off" required />
               <div id="mPacienteDropdown" class="paciente-picker-dropdown hidden"></div>
-              <small id="mPacienteHint" class="hint">Selecione um paciente da lista.</small>
+              <small id="mPacienteHint" class="hint">Selecione um paciente da lista ou lance com cadastro provisório.</small>
+            </div>
+
+            <!-- Paciente ainda não cadastrado: cria cadastro provisório (CADASTRO PENDENTE) -->
+            <div id="boxPacienteNovoMapa" class="novo-paciente-box form-span-full hidden">
+              <div class="novo-paciente-head">
+                <span class="status-tag cadastro-pendente">CADASTRO PENDENTE</span>
+                <span class="hint">O paciente digitado acima será cadastrado automaticamente e vinculado a este atendimento. Complete os dados depois em Pacientes &amp; Prontuário.</span>
+                <button type="button" id="btnCancelarPacienteNovo" class="btn btn-outline btn-sm">Buscar cadastrado</button>
+              </div>
+              <div class="grid-form">
+                <div class="form-group">
+                  <label>CPF (recomendado)</label>
+                  <input type="text" id="mNovoCpf" inputmode="numeric" placeholder="000.000.000-00" class="input-cpf" />
+                </div>
+                <div class="form-group">
+                  <label>Telefone / WhatsApp</label>
+                  <input type="text" id="mNovoTelefone" inputmode="tel" placeholder="(85) 99999-9999" />
+                </div>
+                <div class="form-group">
+                  <label>Data de Nascimento</label>
+                  <input type="date" id="mNovoNascimento" />
+                </div>
+              </div>
             </div>
 
             <div class="form-group">
@@ -315,10 +338,12 @@
                   <th>Exec. Base</th>
                   <th>Lab.</th>
                   <th>Exec. / Com. Exec.</th>
+                  <th id="thComissoesMapa">Total de Comissões</th>
                   <th id="thAcoesMapa">Ações</th>
                 </tr>
               </thead>
               <tbody></tbody>
+              <tfoot id="tabelaMapaFoot"></tfoot>
             </table>
           </div>
         </div>
@@ -339,19 +364,21 @@
                 <label>Nome Completo *</label>
                 <input type="text" id="pacNome" placeholder="Ex: Maria da Silva" required />
               </div>
+              <div id="pacAvisoPendente" class="form-span-full aviso-cadastro-pendente hidden"></div>
               <div class="form-group">
                 <label>CPF</label>
-                <input type="text" id="pacCpf" inputmode="numeric" placeholder="000.000.000-00" />
+                <input type="text" id="pacCpf" inputmode="numeric" placeholder="000.000.000-00" class="input-cpf" />
+                <small id="pacCpfHint" class="hint">Identificador único do paciente na clínica.</small>
               </div>
               <div class="form-group">
                 <label>Data de Nascimento</label>
                 <input type="date" id="pacNascimento" />
               </div>
-              <div class="form-group">
+              <div class="form-group" id="grpPacTelefone">
                 <label>Telefone / WhatsApp</label>
                 <input type="text" id="pacTelefone" inputmode="tel" placeholder="(85) 99999-9999" />
               </div>
-              <div class="form-group">
+              <div class="form-group" id="grpPacEmail">
                 <label>E-mail</label>
                 <input type="email" id="pacEmail" placeholder="paciente@email.com" />
               </div>
@@ -402,7 +429,13 @@
           <div class="card">
             <div class="card-header">
               <h3><i data-lucide="users"></i> Pacientes Cadastrados</h3>
-              <input type="text" id="buscaPaciente" placeholder="Buscar por nome ou CPF..." style="max-width: 260px;" />
+              <div class="header-inline">
+                <label id="filtroPendentesWrap" class="remember-row hidden" style="margin:0;">
+                  <input type="checkbox" id="filtroCadastroPendente" />
+                  <span>Só cadastros pendentes (<strong id="contadorPendentes">0</strong>)</span>
+                </label>
+                <input type="text" id="buscaPaciente" placeholder="Buscar por nome ou CPF..." style="max-width: 260px;" />
+              </div>
             </div>
             <ul id="listaPacientes" class="editable-list"></ul>
           </div>
@@ -962,7 +995,7 @@
         <div class="card">
           <div class="card-header">
             <h2 id="tituloPagamentosDentista">Fechamento &amp; Repasse aos Dentistas (Dia)</h2>
-            <span class="hint" id="hintPagamentosDentista">Preencha o valor pago no dia. O sistema impede saldo negativo.</span>
+            <span class="hint" id="hintPagamentosDentista">O saldo não pago de dias anteriores é transportado automaticamente (coluna "Saldo Anterior"). Preencha o valor pago no dia; o sistema impede saldo negativo.</span>
           </div>
           <div class="table-responsive">
             <table id="tabelaPagamentos">
@@ -972,8 +1005,9 @@
                   <th>Total Vendido (Líq.)</th>
                   <th>Com. Venda</th>
                   <th>Com. Execução</th>
-                  <th>Produção Total</th>
+                  <th>Produção do Dia</th>
                   <th>Saídas / Descontos</th>
+                  <th>Saldo Anterior (Pendente)</th>
                   <th>Total a Receber</th>
                   <th>Valor Pago (Adm)</th>
                   <th>Saldo Restante</th>

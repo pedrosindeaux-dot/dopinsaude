@@ -277,39 +277,69 @@ function configurarSeletorPacienteMapa() {
   const inputId = document.getElementById('mPacienteId');
   const dropdown = document.getElementById('mPacienteDropdown');
   const hint = document.getElementById('mPacienteHint');
+  const boxNovo = document.getElementById('boxPacienteNovoMapa');
   if (!inputBusca || !inputId || !dropdown) return;
+
+  const PU = () => window.PacienteUtils || {};
 
   const mostrarLista = () => {
     const termo = inputBusca.value.trim().toLowerCase();
+    const termoCpf = (PU().normalizarCPF || ((x) => x))(termo);
+    const verContato = PU().podeVerContato ? PU().podeVerContato() : true;
     const filtrados = (window.db.pacientes || [])
       .filter(
         (p) =>
           String(p.nome || '').toLowerCase().includes(termo) ||
-          String(p.cpf || '').toLowerCase().includes(termo)
+          String(p.cpf || '').toLowerCase().includes(termo) ||
+          (termoCpf.length >= 3 && String(p.cpf || '').replace(/\D/g, '').includes(termoCpf))
       )
       .slice(0, 15);
 
-    if (filtrados.length === 0) {
-      dropdown.innerHTML =
-        '<div class="paciente-picker-item"><strong>Nenhum paciente encontrado</strong><small>Cadastre o paciente primeiro na aba Pacientes &amp; Prontuário.</small></div>';
-    } else {
-      dropdown.innerHTML = filtrados
-        .map(
-          (p) => `
+    let html = filtrados
+      .map(
+        (p) => `
           <div class="paciente-picker-item" data-id="${window.escapeHTML(p.id)}" data-nome="${window.escapeHTML(p.nome)}">
-            <strong>${window.escapeHTML(p.nome)}</strong>
-            <small>${p.cpf ? `CPF: ${window.escapeHTML(p.cpf)}` : 'Sem CPF'}${p.telefone ? ` • ${window.escapeHTML(p.telefone)}` : ''}</small>
+            <strong>${window.escapeHTML(p.nome)}${PU().isCadastroPendente?.(p) ? ' ' + PU().tagPendente() : ''}</strong>
+            <small>${p.cpf ? `CPF: ${window.escapeHTML(p.cpf)}` : 'Sem CPF'}${verContato && p.telefone ? ` • ${window.escapeHTML(p.telefone)}` : ''}</small>
           </div>`
-        )
-        .join('');
+      )
+      .join('');
+
+    if (filtrados.length === 0) {
+      html = '<div class="paciente-picker-item"><strong>Nenhum paciente encontrado</strong><small>Você pode lançar o atendimento com um cadastro provisório.</small></div>';
     }
+    if (inputBusca.value.trim().length >= 2) {
+      html += `
+        <div class="paciente-picker-item picker-novo" data-novo="1">
+          <strong>+ Paciente não cadastrado: "${window.escapeHTML(inputBusca.value.trim())}"</strong>
+          <small>Lançar atendimento e criar cadastro provisório (CADASTRO PENDENTE)</small>
+        </div>`;
+    }
+    dropdown.innerHTML = html;
     dropdown.classList.remove('hidden');
+  };
+
+  const ativarModoNovo = (ativo) => {
+    inputBusca.dataset.modoNovo = ativo ? '1' : '';
+    boxNovo?.classList.toggle('hidden', !ativo);
+    if (!ativo && boxNovo) boxNovo.querySelectorAll('input').forEach((i) => (i.value = ''));
+    if (hint) {
+      hint.textContent = ativo
+        ? 'Novo paciente: será criado como CADASTRO PENDENTE ao lançar.'
+        : 'Selecione um paciente cadastrado da lista.';
+      hint.className = ativo ? 'hint text-danger' : 'hint';
+    }
+  };
+  window.resetarSeletorPacienteMapa = () => {
+    inputId.value = '';
+    ativarModoNovo(false);
+    if (hint) hint.textContent = 'Selecione um paciente da lista ou lance com cadastro provisório.';
   };
 
   inputBusca.addEventListener('focus', mostrarLista);
   inputBusca.addEventListener('input', () => {
     inputId.value = '';
-    if (hint) {
+    if (hint && inputBusca.dataset.modoNovo !== '1') {
       hint.textContent = 'Selecione um paciente cadastrado da lista.';
       hint.className = 'hint';
     }
@@ -318,7 +348,16 @@ function configurarSeletorPacienteMapa() {
 
   dropdown.addEventListener('click', (e) => {
     const item = e.target.closest('.paciente-picker-item');
-    if (!item || !item.dataset.id) return;
+    if (!item) return;
+    if (item.dataset.novo === '1') {
+      inputId.value = '';
+      dropdown.classList.add('hidden');
+      ativarModoNovo(true);
+      document.getElementById('mNovoCpf')?.focus();
+      return;
+    }
+    if (!item.dataset.id) return;
+    ativarModoNovo(false);
     inputId.value = item.dataset.id;
     inputBusca.value = item.dataset.nome;
     dropdown.classList.add('hidden');
@@ -328,11 +367,73 @@ function configurarSeletorPacienteMapa() {
     }
   });
 
+  document.getElementById('btnCancelarPacienteNovo')?.addEventListener('click', () => {
+    ativarModoNovo(false);
+    inputBusca.focus();
+  });
+
   document.addEventListener('click', (e) => {
     if (!e.target.closest('.paciente-picker-wrap')) {
       dropdown.classList.add('hidden');
     }
   });
+}
+
+// Cria (uma única vez) o cadastro provisório do paciente digitado no Mapa Diário.
+// Retorna { id, nome } ou null se o usuário cancelar.
+async function obterPacienteProvisorioMapa() {
+  const PU = window.PacienteUtils;
+  const inputBusca = document.getElementById('mPacienteBusca');
+  const nome = inputBusca.value.trim();
+  const cpfDigitado = document.getElementById('mNovoCpf')?.value.trim() || '';
+  const telefone = document.getElementById('mNovoTelefone')?.value.trim() || '';
+  const data_nascimento = document.getElementById('mNovoNascimento')?.value || '';
+
+  if (nome.length < 3) {
+    alert('Informe o nome completo do paciente (mínimo 3 letras).');
+    return null;
+  }
+
+  let cpf = '';
+  if (cpfDigitado) {
+    if (!PU.cpfValido(cpfDigitado)) {
+      alert('CPF inválido. Corrija ou deixe em branco para completar depois.');
+      return null;
+    }
+    cpf = PU.formatarCPF(cpfDigitado);
+    const existente = PU.buscarPorCPF(cpf);
+    if (existente) {
+      const usar = confirm(
+        `Já existe um paciente com este CPF: ${existente.nome}.\n\nNão será criado outro cadastro. Deseja lançar o atendimento para "${existente.nome}"?`
+      );
+      return usar ? { id: existente.id, nome: existente.nome } : null;
+    }
+  } else {
+    const nomeNorm = nome.toLowerCase().replace(/\s+/g, ' ');
+    const parecido = (window.db.pacientes || []).find((p) => String(p.nome || '').toLowerCase().replace(/\s+/g, ' ') === nomeNorm);
+    if (
+      parecido &&
+      !confirm(`Já existe um paciente chamado "${parecido.nome}". Sem CPF não é possível confirmar se é a mesma pessoa.\n\nOK = criar NOVO cadastro provisório\nCancelar = voltar e selecionar o paciente existente na lista`)
+    ) {
+      return null;
+    }
+  }
+
+  const payload = { nome, cpf, telefone, data_nascimento, origem_cadastro: 'mapa_diario' };
+  payload.cadastro_status = PU.calcularStatusCadastro(payload);
+
+  try {
+    const res = await DopinAPI.criarPaciente(payload);
+    const novo = { id: res.id, ...payload };
+    window.db.pacientes = [novo, ...(window.db.pacientes || [])];
+    return { id: res.id, nome };
+  } catch (err) {
+    if (err.status === 409 && err.dados?.paciente_id) {
+      const usar = confirm(`${err.message}\n\nDeseja lançar o atendimento para o paciente já cadastrado?`);
+      return usar ? { id: err.dados.paciente_id, nome: err.dados.paciente_nome || nome } : null;
+    }
+    throw err;
+  }
 }
 
 // ==================== CADASTRO DE NOVA CLÍNICA (SAAS) ====================
@@ -795,10 +896,11 @@ function configurarFormularios() {
     evento.preventDefault();
     if (window.sessaoAtual?.perfil === 'Profissional') return;
 
-    const pacienteId = document.getElementById('mPacienteId').value;
-    const pacienteNome = document.getElementById('mPacienteBusca').value.trim();
-    if (!pacienteId) {
-      alert('Selecione um paciente já cadastrado na lista (digite o nome ou CPF e clique no paciente).');
+    let pacienteId = document.getElementById('mPacienteId').value;
+    let pacienteNome = document.getElementById('mPacienteBusca').value.trim();
+    const modoNovo = document.getElementById('mPacienteBusca').dataset.modoNovo === '1';
+    if (!pacienteId && !modoNovo) {
+      alert('Selecione um paciente cadastrado na lista, ou escolha "+ Paciente não cadastrado" para lançar com cadastro provisório.');
       return;
     }
 
@@ -814,6 +916,24 @@ function configurarFormularios() {
     if (isDataRetroativa(dataAtiva) && !justificativaRetroativa) {
       alert('Informe a justificativa para lançamento em data retroativa.');
       return;
+    }
+
+    if (!pacienteId && modoNovo) {
+      try {
+        const prov = await obterPacienteProvisorioMapa();
+        if (!prov) return;
+        pacienteId = prov.id;
+        pacienteNome = prov.nome;
+        // Guarda o id: se o lançamento falhar, uma nova tentativa reutiliza o mesmo cadastro
+        document.getElementById('mPacienteId').value = pacienteId;
+        document.getElementById('mPacienteBusca').value = pacienteNome;
+        window.resetarSeletorPacienteMapa?.();
+        document.getElementById('mPacienteId').value = pacienteId;
+        if (window.ProntuarioModule) window.ProntuarioModule.renderizarListaPacientes();
+      } catch (err) {
+        alert(`Erro ao criar cadastro provisório do paciente: ${err.message}`);
+        return;
+      }
     }
 
     const valores = calcularValoresMapa();
@@ -832,6 +952,7 @@ function configurarFormularios() {
       const res = await DopinAPI.criarAtendimento(registroAtendimento);
       evento.target.reset();
       document.getElementById('mPacienteId').value = '';
+      window.resetarSeletorPacienteMapa?.();
       document.getElementById('mValorLab').value = '0';
       delete campoExec.dataset.editadoManualmente;
       atualizarPreviewMapa();
@@ -1065,14 +1186,27 @@ function renderizarMapa() {
   const corpoTabela = document.querySelector('#tabelaMapa tbody');
   if (!corpoTabela) return;
 
+  // Comissão que pertence a quem está vendo: o profissional vê só a própria parte
+  // (venda e/ou execução); a administração/recepção vê a comissão total do atendimento.
+  // Usa os mesmos campos gravados (comissaoVenda / comissaoExec) do fechamento e repasse.
+  const meuId = modoLeitura ? window.sessaoAtual?.dentistaId : null;
+  const comissaoDaLinha = (atend) =>
+    meuId
+      ? (atend.dentistaVendaId === meuId ? Number(atend.comissaoVenda) || 0 : 0) +
+        (atend.dentistaExecId === meuId ? Number(atend.comissaoExec) || 0 : 0)
+      : (Number(atend.comissaoVenda) || 0) + (Number(atend.comissaoExec) || 0);
+
+  let somaComissoes = 0;
   corpoTabela.innerHTML = registrosDia
     .map((atend) => {
+      const comissaoLinha = comissaoDaLinha(atend);
+      somaComissoes += comissaoLinha;
       const colunaAcao = modoLeitura
         ? ''
         : `<td><button type="button" class="btn-danger-sm" onclick="excluirAtendimento('${window.escapeHTML(atend.id)}')">Excluir</button></td>`;
       return `
       <tr>
-        <td><strong>${window.escapeHTML(atend.paciente)}</strong></td>
+        <td><strong>${window.escapeHTML(atend.paciente)}</strong>${!modoLeitura && window.PacienteUtils?.isCadastroPendente((window.db.pacientes || []).find((p) => p.id === atend.pacienteId)) ? '<br>' + window.PacienteUtils.tagPendente() : ''}</td>
         <td>${window.escapeHTML(atend.procedimento)}<br><small class="hint">${window.escapeHTML(atend.espNome)}</small></td>
         <td>${window.escapeHTML(atend.formaNome)}<br><small class="hint">Taxa: ${Number(atend.taxaAplicada) || 0}%</small></td>
         <td>${window.fmtBRL(atend.valorPago)}</td>
@@ -1081,10 +1215,28 @@ function renderizarMapa() {
         <td>${window.fmtBRL(atend.valorExecLiquido)}</td>
         <td>${window.fmtBRL(atend.valorLab)}</td>
         <td>${window.escapeHTML(nomeDentista(atend.dentistaExecId))}<br><span class="text-success">${window.fmtBRL(atend.comissaoExec)}</span></td>
+        <td><strong class="text-success">${window.fmtBRL(comissaoLinha)}</strong></td>
         ${colunaAcao}
       </tr>`;
     })
     .join('');
+
+  const totalColunas = modoLeitura ? 10 : 11;
+  if (registrosDia.length === 0) {
+    corpoTabela.innerHTML = `<tr><td colspan="${totalColunas}">Nenhum atendimento aprovado nesta data.</td></tr>`;
+  }
+
+  const rodape = document.getElementById('tabelaMapaFoot');
+  if (rodape) {
+    const rotuloTotal = modoLeitura ? 'Total das minhas comissões no dia' : 'Total de comissões do dia (todos os profissionais)';
+    rodape.innerHTML = registrosDia.length
+      ? `<tr class="row-total">
+           <td colspan="9" data-rotulo="">${rotuloTotal} — ${registrosDia.length} atendimento(s)</td>
+           <td data-rotulo="Total de Comissões">${window.fmtBRL(somaComissoes)}</td>
+           ${modoLeitura ? '' : '<td data-rotulo=""></td>'}
+         </tr>`
+      : '';
+  }
 }
 
 window.excluirAtendimento = async function (atendimentoId) {
@@ -1274,10 +1426,78 @@ function renderizarDiarioCaixa() {
       .join('') || '<tr><td colspan="3">Nenhuma venda no crédito registrada ainda.</td></tr>';
 }
 
+// ==================== SALDO ACUMULADO DOS DENTISTAS (TRANSPORTE ENTRE DIAS) ====================
+// O saldo não é gravado: é recalculado a partir dos lançamentos (atendimentos aprovados,
+// saídas/descontos e pagamentos diários já registrados). Assim:
+//  • nenhuma comissão é contada duas vezes (cada dia entra uma única vez);
+//  • aprovações retroativas e exclusões corrigem o saldo automaticamente;
+//  • o histórico de cada dia continua sendo o próprio pagamento salvo naquela data.
+// Regra (por dentista, dia a dia, em ordem cronológica):
+//   aReceber(d) = max(0, saldoAnterior + produção(d) − descontos(d))
+//   saldo(d)    = max(0, aReceber(d) − pago(d))   → vira o saldoAnterior do próximo dia
+function montarMovimentoDentistas() {
+  const mov = {};
+  const dia = (dentId, data) => {
+    if (!dentId || dentId === 'AUSENTE' || !data) return null;
+    if (!mov[dentId]) mov[dentId] = {};
+    if (!mov[dentId][data]) mov[dentId][data] = { vendido: 0, comVenda: 0, comExec: 0, desc: 0, pago: 0 };
+    return mov[dentId][data];
+  };
+
+  window.db.atendimentos.forEach((a) => {
+    const v = dia(a.dentistaVendaId, a.data);
+    if (v) {
+      v.vendido += Number(a.valorFinal) || 0;
+      v.comVenda += Number(a.comissaoVenda) || 0;
+    }
+    const e = dia(a.dentistaExecId, a.data);
+    if (e) e.comExec += Number(a.comissaoExec) || 0;
+  });
+
+  window.db.saidas.forEach((s) => {
+    const d = dia(s.dentistaId, s.data);
+    if (d) d.desc += Number(s.valor) || 0;
+  });
+
+  Object.entries(window.db.pagamentosDentistas || {}).forEach(([chave, valor]) => {
+    // chave = "AAAA-MM-DD_<dentistaId>"
+    const d = dia(chave.slice(11), chave.slice(0, 10));
+    if (d) d.pago += Number(valor) || 0;
+  });
+
+  return mov;
+}
+
+function calcularSaldoDentista(mov, dentId, dataRef) {
+  const dias = mov[dentId] || {};
+  let saldo = 0;
+  Object.keys(dias)
+    .filter((d) => d < dataRef)
+    .sort()
+    .forEach((d) => {
+      const m = dias[d];
+      const aReceber = Math.max(0, saldo + m.comVenda + m.comExec - m.desc);
+      saldo = Math.max(0, aReceber - m.pago);
+    });
+
+  const hoje = dias[dataRef] || { vendido: 0, comVenda: 0, comExec: 0, desc: 0, pago: 0 };
+  const producaoDia = hoje.comVenda + hoje.comExec;
+  const totalReceber = Math.max(0, saldo + producaoDia - hoje.desc);
+  return {
+    saldoAnterior: saldo,
+    vendidoDia: hoje.vendido,
+    comissaoVendaDia: hoje.comVenda,
+    comissaoExecDia: hoje.comExec,
+    producaoDia,
+    descontosDia: hoje.desc,
+    totalReceber,
+    pagoDia: hoje.pago,
+    saldoRestante: Math.max(0, totalReceber - hoje.pago)
+  };
+}
+
 function renderizarPagamentosDentistas() {
   const dataSelecionada = getDataAtiva();
-  const atendimentosDia = window.db.atendimentos.filter((item) => item.data === dataSelecionada);
-  const saidasDia = window.db.saidas.filter((item) => item.data === dataSelecionada);
   const corpoTabela = document.querySelector('#tabelaPagamentos tbody');
   if (!corpoTabela) return;
 
@@ -1290,32 +1510,28 @@ function renderizarPagamentosDentistas() {
     ? window.db.config.dentistas.filter((d) => d.id === window.sessaoAtual.dentistaId)
     : window.db.config.dentistas;
 
+  const mov = montarMovimentoDentistas();
+
   corpoTabela.innerHTML = dentistasExibidos
     .map((dent) => {
-      const totalVendido = atendimentosDia.filter((a) => a.dentistaVendaId === dent.id).reduce((s, a) => s + (Number(a.valorFinal) || 0), 0);
-      const comissaoVenda = atendimentosDia.filter((a) => a.dentistaVendaId === dent.id).reduce((s, a) => s + (Number(a.comissaoVenda) || 0), 0);
-      const comissaoExec = atendimentosDia.filter((a) => a.dentistaExecId === dent.id).reduce((s, a) => s + (Number(a.comissaoExec) || 0), 0);
-      const producaoBruta = comissaoVenda + comissaoExec;
-      const descontosDentista = saidasDia.filter((s) => s.dentistaId === dent.id).reduce((s, a) => s + (Number(a.valor) || 0), 0);
-      const liquidoReceber = Math.max(0, producaoBruta - descontosDentista);
-      const valorPago = Number(window.db.pagamentosDentistas[`${dataSelecionada}_${dent.id}`]) || 0;
-      const saldoRestante = Math.max(0, liquidoReceber - valorPago);
+      const r = calcularSaldoDentista(mov, dent.id, dataSelecionada);
 
       const celulaPago = isProfissional
-        ? `<strong>${window.fmtBRL(valorPago)}</strong>`
-        : `<input type="number" step="0.01" min="0" max="${liquidoReceber.toFixed(2)}" value="${valorPago}" onchange="registrarPagamentoDentista('${window.escapeHTML(dent.id)}', this.value, ${liquidoReceber})" style="width: 110px;" />`;
+        ? `<strong>${window.fmtBRL(r.pagoDia)}</strong>`
+        : `<input type="number" step="0.01" min="0" max="${r.totalReceber.toFixed(2)}" value="${r.pagoDia}" onchange="registrarPagamentoDentista('${window.escapeHTML(dent.id)}', this.value, ${r.totalReceber.toFixed(2)})" style="width: 110px;" />`;
 
       return `
       <tr>
         <td><strong>${window.escapeHTML(dent.nome)}</strong><br><small class="hint">@${window.escapeHTML(dent.usuario)}</small></td>
-        <td>${window.fmtBRL(totalVendido)}</td>
-        <td>${window.fmtBRL(comissaoVenda)}</td>
-        <td>${window.fmtBRL(comissaoExec)}</td>
-        <td><strong>${window.fmtBRL(producaoBruta)}</strong></td>
-        <td class="text-danger">${window.fmtBRL(descontosDentista)}</td>
-        <td><strong>${window.fmtBRL(liquidoReceber)}</strong></td>
+        <td>${window.fmtBRL(r.vendidoDia)}</td>
+        <td>${window.fmtBRL(r.comissaoVendaDia)}</td>
+        <td>${window.fmtBRL(r.comissaoExecDia)}</td>
+        <td><strong>${window.fmtBRL(r.producaoDia)}</strong></td>
+        <td class="text-danger">${window.fmtBRL(r.descontosDia)}</td>
+        <td class="${r.saldoAnterior > 0 ? 'text-danger' : ''}">${window.fmtBRL(r.saldoAnterior)}</td>
+        <td><strong>${window.fmtBRL(r.totalReceber)}</strong></td>
         <td>${celulaPago}</td>
-        <td class="${saldoRestante > 0 ? 'text-danger' : 'text-success'}"><strong>${window.fmtBRL(saldoRestante)}</strong></td>
+        <td class="${r.saldoRestante > 0 ? 'text-danger' : 'text-success'}"><strong>${window.fmtBRL(r.saldoRestante)}</strong></td>
       </tr>`;
     })
     .join('');
@@ -1422,6 +1638,12 @@ function renderizarGeral() {
       <td>${window.fmtBRL(totDin)}</td><td>${window.fmtBRL(totPix)}</td><td>${window.fmtBRL(totDeb)}</td><td>${window.fmtBRL(totCred)}</td><td>-</td>
     </tr>`;
 
+  const movDent = montarMovimentoDentistas();
+  const hojeRef = window.db.dataServidor || window.hojeISO();
+  const fimAno = `${anoSelecionado}-12-31`;
+  // Saldo pendente no fim do ano (ou hoje, se o ano estiver em curso), já com o transporte entre dias
+  const dataCorteSaldo = fimAno < hojeRef ? fimAno : hojeRef;
+
   document.querySelector('#tabelaGeralDentistas tbody').innerHTML = window.db.config.dentistas
     .map((dent) => {
       const vendido = atendimentosAno.filter((a) => a.dentistaVendaId === dent.id).reduce((s, a) => s + (Number(a.valorFinal) || 0), 0);
@@ -1432,7 +1654,7 @@ function renderizarGeral() {
       const pago = Object.entries(window.db.pagamentosDentistas || {})
         .filter(([k]) => k.startsWith(anoSelecionado) && k.endsWith(`_${dent.id}`))
         .reduce((s, [, v]) => s + (Number(v) || 0), 0);
-      const pend = Math.max(0, Math.max(0, prod - desc) - pago);
+      const pend = calcularSaldoDentista(movDent, dent.id, dataCorteSaldo).saldoRestante;
       return `<tr><td><strong>${window.escapeHTML(dent.nome)}</strong></td><td>${window.fmtBRL(vendido)}</td><td>${window.fmtBRL(comV)}</td><td>${window.fmtBRL(comE)}</td><td><strong>${window.fmtBRL(prod)}</strong></td><td class="text-danger">${window.fmtBRL(desc)}</td><td>${window.fmtBRL(pago)}</td><td class="${pend > 0 ? 'text-danger' : 'text-success'}"><strong>${window.fmtBRL(pend)}</strong></td></tr>`;
     }).join('');
 

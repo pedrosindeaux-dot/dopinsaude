@@ -35,12 +35,91 @@
     return 'pendente';
   }
 
+  // ==================== UTILITÁRIOS DE PACIENTE (CPF, PERMISSÕES, STATUS) ====================
+  // Campos exigidos para o cadastro deixar de ser "CADASTRO PENDENTE".
+  // Mantenha esta lista igual à do backend (função statusCadastro no Worker).
+  const CAMPOS_OBRIGATORIOS_CADASTRO = [
+    { campo: 'nome', rotulo: 'Nome completo' },
+    { campo: 'cpf', rotulo: 'CPF válido' },
+    { campo: 'data_nascimento', rotulo: 'Data de nascimento' },
+    { campo: 'telefone', rotulo: 'Telefone' }
+  ];
+
+  const normalizarCPF = (cpf) => String(cpf || '').replace(/\D/g, '');
+
+  function cpfValido(cpf) {
+    const d = normalizarCPF(cpf);
+    if (d.length !== 11 || /^(\d)\1{10}$/.test(d)) return false;
+    for (let t = 9; t < 11; t++) {
+      let soma = 0;
+      for (let i = 0; i < t; i++) soma += Number(d[i]) * (t + 1 - i);
+      const dv = ((soma * 10) % 11) % 10;
+      if (dv !== Number(d[t])) return false;
+    }
+    return true;
+  }
+
+  function formatarCPF(cpf) {
+    const d = normalizarCPF(cpf).slice(0, 11);
+    if (d.length !== 11) return String(cpf || '').trim();
+    return `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6, 9)}-${d.slice(9)}`;
+  }
+
+  // Máscara leve enquanto digita (aceita colar com ou sem pontuação)
+  function aplicarMascaraCPF(input) {
+    input.addEventListener('input', () => {
+      const d = normalizarCPF(input.value).slice(0, 11);
+      let v = d;
+      if (d.length > 9) v = `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6, 9)}-${d.slice(9)}`;
+      else if (d.length > 6) v = `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6)}`;
+      else if (d.length > 3) v = `${d.slice(0, 3)}.${d.slice(3)}`;
+      input.value = v;
+    });
+  }
+
+  const normalizarNome = (nome) =>
+    String(nome || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase();
+
+  function buscarPorCPF(cpf, ignorarId = null) {
+    const alvo = normalizarCPF(cpf);
+    if (!alvo) return null;
+    return (window.db?.pacientes || []).find((p) => p.id !== ignorarId && normalizarCPF(p.cpf) === alvo) || null;
+  }
+
+  function camposPendentes(dados) {
+    return CAMPOS_OBRIGATORIOS_CADASTRO.filter(({ campo }) => {
+      if (campo === 'cpf') return !cpfValido(dados.cpf);
+      return !String(dados[campo] || '').trim();
+    });
+  }
+
+  const calcularStatusCadastro = (dados) => (camposPendentes(dados).length === 0 ? 'completo' : 'pendente');
+  const isCadastroPendente = (p) => Boolean(p) && p.cadastro_status === 'pendente';
+  const podeVerContato = () => window.sessaoAtual?.perfil !== 'Profissional';
+  const tagPendente = () => '<span class="status-tag cadastro-pendente" style="margin-left:6px;">CADASTRO PENDENTE</span>';
+
+  // Aviso de CPF duplicado com atalho para o cadastro existente
+  function avisarCPFDuplicado(existente) {
+    const abrir = confirm(
+      `Já existe um paciente cadastrado com este CPF:\n\n${existente.nome}${existente.cpf ? ` — CPF ${formatarCPF(existente.cpf)}` : ''}\n\nNão é permitido criar um segundo cadastro com o mesmo CPF.\n\nDeseja abrir o cadastro existente?`
+    );
+    if (abrir) abrirProntuario(existente.id);
+  }
+
   function getPacienteAtual() {
     return (window.db?.pacientes || []).find((p) => p.id === pacienteAtualId) || null;
   }
 
   // ==================== INICIALIZAÇÃO DE EVENTOS ====================
   function init() {
+    document.querySelectorAll('.input-cpf').forEach(aplicarMascaraCPF);
+    document.getElementById('filtroCadastroPendente')?.addEventListener('change', renderizarListaPacientes);
+
     // Cadastro / Edição de Paciente + Anamnese
     document.getElementById('formPaciente')?.addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -62,6 +141,48 @@
       };
       if (!payload.nome) return;
 
+      const isProf = !podeVerContato();
+      if (isProf) {
+        // Profissional não visualiza nem altera telefone/e-mail: os campos não são enviados.
+        // (O backend também ignora esses campos para o perfil Profissional.)
+        delete payload.telefone;
+        delete payload.email;
+      }
+
+      // CPF: identificador único (com ou sem pontuação)
+      if (payload.cpf) {
+        if (!cpfValido(payload.cpf)) {
+          alert('CPF inválido. Confira os 11 dígitos informados (ou deixe em branco se o paciente não tiver CPF no momento).');
+          document.getElementById('pacCpf').focus();
+          return;
+        }
+        payload.cpf = formatarCPF(payload.cpf);
+        const existente = buscarPorCPF(payload.cpf, editId || null);
+        if (existente) {
+          avisarCPFDuplicado(existente);
+          return;
+        }
+      } else if (!editId) {
+        // Sem CPF: não bloqueia (nomes iguais são permitidos), mas alerta possível duplicidade
+        const nomeNorm = normalizarNome(payload.nome);
+        const parecido = (window.db?.pacientes || []).find(
+          (p) =>
+            normalizarNome(p.nome) === nomeNorm &&
+            (!payload.data_nascimento || !p.data_nascimento || p.data_nascimento === payload.data_nascimento)
+        );
+        if (
+          parecido &&
+          !confirm(
+            `Já existe um paciente chamado "${parecido.nome}"${parecido.cpf ? ` (CPF ${formatarCPF(parecido.cpf)})` : ' sem CPF'}${parecido.data_nascimento ? `, nascido em ${fmtDataBR(parecido.data_nascimento)}` : ''}.\n\nPode ser a mesma pessoa. Cadastre o CPF para evitar duplicidade.\n\nDeseja criar mesmo assim um NOVO cadastro?`
+          )
+        ) {
+          return;
+        }
+      }
+
+      // Status do cadastro (o backend recalcula com os dados completos, inclusive para o Profissional)
+      if (!isProf) payload.cadastro_status = calcularStatusCadastro(payload);
+
       btn.disabled = true;
       btn.textContent = 'Salvando...';
       try {
@@ -78,7 +199,18 @@
         renderizarListaPacientes();
         if (pacId) await abrirProntuario(pacId);
       } catch (err) {
-        alert(`Erro ao salvar paciente: ${err.message}`);
+        if (err.status === 409 && err.dados?.paciente_id) {
+          const lista = await DopinAPI.listarPacientes().catch(() => null);
+          if (lista) window.db.pacientes = lista.pacientes || [];
+          const existente = (window.db?.pacientes || []).find((p) => p.id === err.dados.paciente_id) || {
+            id: err.dados.paciente_id,
+            nome: err.dados.paciente_nome || 'Paciente existente',
+            cpf: payload.cpf
+          };
+          avisarCPFDuplicado(existente);
+        } else {
+          alert(`Erro ao salvar paciente: ${err.message}`);
+        }
       } finally {
         btn.disabled = false;
         btn.innerHTML = '<i data-lucide="save"></i> Salvar Paciente';
@@ -233,9 +365,34 @@
     });
   }
 
+  function aplicarPermissoesFormPaciente() {
+    const ver = podeVerContato();
+    document.getElementById('grpPacTelefone')?.classList.toggle('hidden', !ver);
+    document.getElementById('grpPacEmail')?.classList.toggle('hidden', !ver);
+  }
+
+  function atualizarAvisoPendente(p) {
+    const box = document.getElementById('pacAvisoPendente');
+    if (!box) return;
+    if (!p || !isCadastroPendente(p)) {
+      box.classList.add('hidden');
+      box.innerHTML = '';
+      return;
+    }
+    const faltam = camposPendentes(p)
+      .filter(({ campo }) => podeVerContato() || campo !== 'telefone')
+      .map((c) => c.rotulo);
+    box.innerHTML = `<strong>CADASTRO PENDENTE.</strong> ${
+      faltam.length ? `Complete: ${window.escapeHTML(faltam.join(', '))}.` : 'Salve para atualizar o status.'
+    } Ao salvar com todos os dados obrigatórios, o status muda automaticamente para "Cadastro completo".`;
+    box.classList.remove('hidden');
+  }
+
   function resetarFormPaciente() {
     document.getElementById('formPaciente')?.reset();
     document.getElementById('pacEditId').value = '';
+    atualizarAvisoPendente(null);
+    aplicarPermissoesFormPaciente();
     document.getElementById('tituloFormPaciente').innerHTML =
       '<i data-lucide="user-plus"></i> Cadastrar Novo Paciente &amp; Anamnese';
     document.getElementById('btnCancelarEditPaciente')?.classList.add('hidden');
@@ -268,11 +425,26 @@
     const cardCad = document.getElementById('cardCadastroPaciente');
     if (cardCad) cardCad.classList.toggle('hidden', isProf && !document.getElementById('pacEditId').value);
 
+    aplicarPermissoesFormPaciente();
     const termo = (document.getElementById('buscaPaciente')?.value || '').trim().toLowerCase();
-    const filtrados = (window.db?.pacientes || []).filter(
+    const termoCpf = normalizarCPF(termo);
+
+    // Filtro "Só cadastros pendentes" (Administração e Recepção)
+    const todos = window.db?.pacientes || [];
+    const totalPendentes = todos.filter(isCadastroPendente).length;
+    const wrapFiltro = document.getElementById('filtroPendentesWrap');
+    const chkPend = document.getElementById('filtroCadastroPendente');
+    if (wrapFiltro) wrapFiltro.classList.toggle('hidden', isProf);
+    const contador = document.getElementById('contadorPendentes');
+    if (contador) contador.textContent = totalPendentes;
+    const soPendentes = !isProf && Boolean(chkPend?.checked);
+
+    const filtrados = todos.filter(
       (p) =>
-        String(p.nome || '').toLowerCase().includes(termo) ||
-        String(p.cpf || '').toLowerCase().includes(termo)
+        (!soPendentes || isCadastroPendente(p)) &&
+        (String(p.nome || '').toLowerCase().includes(termo) ||
+          String(p.cpf || '').toLowerCase().includes(termo) ||
+          (termoCpf.length >= 3 && normalizarCPF(p.cpf).includes(termoCpf)))
     );
 
     if (filtrados.length === 0) {
@@ -283,8 +455,8 @@
     ul.innerHTML = filtrados
       .map((p) => {
         const detalhes = [
-          p.cpf ? `CPF: ${window.escapeHTML(p.cpf)}` : '',
-          p.telefone ? `Tel: ${window.escapeHTML(p.telefone)}` : '',
+          p.cpf ? `CPF: ${window.escapeHTML(p.cpf)}` : 'Sem CPF',
+          podeVerContato() && p.telefone ? `Tel: ${window.escapeHTML(p.telefone)}` : '',
           p.alergias ? `⚠️ Alergia: ${window.escapeHTML(p.alergias)}` : ''
         ]
           .filter(Boolean)
@@ -295,6 +467,7 @@
         const badgeExcl = pendenteExcl
           ? '<span class="status-tag pendente" style="margin-left:6px;">Exclusão pendente</span>'
           : '';
+        const badgeCadastro = !isProf && isCadastroPendente(p) ? tagPendente() : '';
         const btnExcluir =
           perfil === 'Administração'
             ? `<button type="button" class="btn-danger-sm" onclick="ProntuarioModule.excluirPaciente('${window.escapeHTML(p.id)}', '${window.escapeHTML(p.nome)}')">Excluir</button>`
@@ -305,7 +478,7 @@
         return `
           <li>
             <div>
-              <strong>${window.escapeHTML(p.nome)}</strong>${badgeExcl}
+              <strong>${window.escapeHTML(p.nome)}</strong>${badgeCadastro}${badgeExcl}
               ${detalhes ? `<br><small class="hint">${detalhes}</small>` : ''}
             </div>
             <div class="item-actions">
@@ -331,8 +504,10 @@
     document.getElementById('pacNome').value = p.nome || '';
     document.getElementById('pacCpf').value = p.cpf || '';
     document.getElementById('pacNascimento').value = p.data_nascimento || '';
-    document.getElementById('pacTelefone').value = p.telefone || '';
-    document.getElementById('pacEmail').value = p.email || '';
+    document.getElementById('pacTelefone').value = podeVerContato() ? p.telefone || '' : '';
+    document.getElementById('pacEmail').value = podeVerContato() ? p.email || '' : '';
+    aplicarPermissoesFormPaciente();
+    atualizarAvisoPendente(p);
     document.getElementById('pacEndereco').value = p.endereco || '';
     document.getElementById('pacHistMedico').value = p.historico_medico || '';
     document.getElementById('pacDoencas').value = p.doencas_sistemicas || '';
@@ -380,11 +555,12 @@
     document.getElementById('viewListaPacientes').classList.add('hidden');
     document.getElementById('viewProntuarioPaciente').classList.remove('hidden');
 
-    document.getElementById('prontNomePaciente').textContent = `Prontuário — ${pac.nome}`;
+    document.getElementById('prontNomePaciente').innerHTML =
+      `Prontuário — ${window.escapeHTML(pac.nome)}${podeVerContato() && isCadastroPendente(pac) ? tagPendente() : ''}`;
     const infoParts = [
       pac.cpf ? `CPF: ${pac.cpf}` : '',
       pac.data_nascimento ? `Nasc.: ${fmtDataBR(pac.data_nascimento)}` : '',
-      pac.telefone ? `Tel: ${pac.telefone}` : ''
+      podeVerContato() && pac.telefone ? `Tel: ${pac.telefone}` : ''
     ].filter(Boolean);
     document.getElementById('prontInfoPaciente').textContent = infoParts.join(' • ') || 'Sem informações complementares';
 
@@ -830,5 +1006,18 @@
     visualizarDocumento,
     excluirDocumento,
     getPacienteAtual
+  };
+
+  // Utilitários compartilhados com o Mapa Diário (script.js)
+  window.PacienteUtils = {
+    normalizarCPF,
+    cpfValido,
+    formatarCPF,
+    buscarPorCPF,
+    calcularStatusCadastro,
+    isCadastroPendente,
+    podeVerContato,
+    tagPendente,
+    avisarCPFDuplicado
   };
 })();

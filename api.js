@@ -33,7 +33,12 @@ const DopinAPI = {
     });
 
     const dados = await resp.json().catch(() => ({}));
-    if (!resp.ok) throw new Error(dados.erro || `Erro HTTP ${resp.status}`);
+    if (!resp.ok) {
+      const erro = new Error(dados.erro || `Erro HTTP ${resp.status}`);
+      erro.status = resp.status; // ex.: 409 = CPF já cadastrado
+      erro.dados = dados;        // ex.: { erro, paciente_id }
+      throw erro;
+    }
     return dados;
   },
 

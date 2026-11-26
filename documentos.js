@@ -606,67 +606,124 @@
         </div>`;
     }
 
-    const win = window.open('', '_blank', 'width=900,height=750');
-    if (!win) {
-      alert('Permita pop-ups no navegador para visualizar e imprimir o documento.');
-      return;
-    }
+    abrirVisualizacao(tipo, conteudo, htmlCorpo);
+  }
 
-    win.document.write(`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Documento — DôPin Saúde</title>
-      <style>
-        body { font-family: 'Segoe UI', Arial, sans-serif; color: #0f172a; margin: 0; padding: 24px; background: #f8fafc; }
-        .page-sheet { background: #fff; max-width: 780px; margin: 0 auto 24px; padding: 32px; border: 1px solid #cbd5e1; border-radius: 8px; }
-        .doc-head { border-bottom: 2px solid #06283d; padding-bottom: 14px; margin-bottom: 18px; }
-        .doc-brand { display: flex; align-items: center; gap: 16px; }
-        .doc-brand h2 { margin: 0; color: #06283d; font-size: 1.25rem; }
-        .doc-brand p { margin: 4px 0 0; color: #475569; font-size: 0.82rem; }
-        .doc-title-bar { text-align: center; margin: 18px 0; }
-        .doc-title-bar h3 { margin: 0; color: #06283d; letter-spacing: 0.5px; }
-        .via-badge { display: inline-block; margin-top: 6px; padding: 4px 12px; background: #f0fdfa; border: 1px solid #14b8a6; color: #0d9488; font-size: 0.78rem; font-weight: 700; border-radius: 999px; }
-        .pac-box { background: #f8fafc; border: 1px solid #e2e8f0; padding: 10px 14px; border-radius: 6px; margin-bottom: 18px; font-size: 0.92rem; }
-        .med-item { padding: 12px 0; border-bottom: 1px dashed #cbd5e1; }
-        .med-title { display: flex; justify-content: space-between; font-size: 0.98rem; }
-        .med-posologia { margin-top: 5px; font-size: 0.92rem; }
-        .med-sub { margin-top: 3px; font-size: 0.82rem; color: #475569; }
-        .atestado-body { font-size: 1rem; line-height: 1.75; margin: 28px 0 48px; text-align: justify; }
-        .doc-footer { display: flex; justify-content: space-between; align-items: flex-end; margin-top: 52px; font-size: 0.88rem; }
-        .sig-box { text-align: center; min-width: 240px; }
-        .sig-line { border-top: 1px solid #334155; margin-bottom: 6px; }
-        .landscape-two-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; max-width: 1120px; margin: 0 auto; align-items: stretch; }
-        .landscape-two-cols .page-sheet { max-width: 100%; margin: 0; padding: 20px; font-size: 0.86rem; display: flex; flex-direction: column; justify-content: space-between; }
-        .landscape-two-cols .doc-brand h2 { font-size: 1.05rem; }
-        .landscape-two-cols .doc-title-bar h3 { font-size: 0.98rem; }
-        .landscape-two-cols .doc-footer { margin-top: 28px; }
-        .page-break { page-break-before: always; }
-        .print-bar { text-align: center; margin-bottom: 16px; }
-        .print-bar button { background: #14b8a6; color: #fff; border: none; padding: 10px 20px; border-radius: 7px; font-weight: 600; cursor: pointer; font-size: 0.92rem; }
-        ${tipo === 'receita_especial' ? '@page { size: A4 landscape; margin: 8mm; }' : '@page { size: A4 portrait; margin: 12mm; }'}
-        .med-title { flex-wrap: wrap; gap: 4px 12px; }
-        .doc-brand { flex-wrap: wrap; }
-        .doc-brand img { max-width: 100%; }
-        @media screen and (max-width: 760px) {
-          body { padding: 10px; }
-          .page-sheet { padding: 18px 14px; margin-bottom: 14px; }
-          .landscape-two-cols { grid-template-columns: 1fr; }
-          .doc-brand h2 { font-size: 1.05rem; }
-          .doc-title-bar h3 { font-size: 0.98rem; }
-          .atestado-body { font-size: 0.95rem; margin: 18px 0 30px; text-align: left; }
-          .doc-footer { flex-direction: column; align-items: stretch; gap: 26px; margin-top: 32px; }
-          .sig-box { min-width: 0; }
-          .print-bar { position: sticky; top: 0; z-index: 5; padding: 6px 0; background: #f8fafc; }
-          .print-bar button { width: 100%; padding: 14px; font-size: 1rem; }
-        }
-        @media print {
-          body { background: #fff; padding: 0; }
-          .print-bar { display: none; }
-          .page-sheet { border: 1px solid #cbd5e1; margin: 0; padding: 14px; }
-          .landscape-two-cols { max-width: 100%; gap: 12px; }
-        }
-      </style></head><body>
-      <div class="print-bar"><button onclick="window.print()">Imprimir / Salvar em PDF</button></div>
-      ${htmlCorpo}
-      </body></html>`);
-    win.document.close();
+  // ==================== VISUALIZAÇÃO INTERNA (SEM POP-UP) ====================
+  // O documento é exibido numa camada de tela cheia DENTRO do próprio sistema.
+  // A impressão usa window.print() da página principal, com uma regra @media print
+  // que oculta todo o sistema e imprime apenas o documento. Isso funciona no
+  // Chrome para Android, Safari iOS e navegadores de desktop (o pop-up com
+  // document.write falhava no celular e deixava o usuário preso na aba nova).
+  let overlayEl = null;
+  let tituloOriginal = '';
+  let estadoHistoricoAtivo = false;
+
+  function garantirOverlay() {
+    if (overlayEl) return overlayEl;
+    overlayEl = document.createElement('div');
+    overlayEl.id = 'docPreviewOverlay';
+    overlayEl.className = 'doc-preview-overlay hidden';
+    overlayEl.setAttribute('role', 'dialog');
+    overlayEl.setAttribute('aria-modal', 'true');
+    overlayEl.innerHTML = `
+      <div class="doc-preview-toolbar">
+        <button type="button" class="btn btn-outline doc-preview-voltar" data-acao="voltar">
+          <i data-lucide="arrow-left"></i> <span>Voltar ao sistema</span>
+        </button>
+        <span class="doc-preview-nome"></span>
+        <button type="button" class="btn btn-primary doc-preview-imprimir" data-acao="imprimir">
+          <i data-lucide="printer"></i> <span>Imprimir / Salvar PDF</span>
+        </button>
+      </div>
+      <p class="doc-preview-dica">No celular, toque em <strong>Imprimir / Salvar PDF</strong> e escolha a impressora ou a opção <strong>"Salvar como PDF"</strong>.</p>
+      <div class="doc-preview-scroll">
+        <div class="doc-print-root"></div>
+      </div>`;
+    document.body.appendChild(overlayEl);
+
+    overlayEl.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-acao]');
+      if (!btn) return;
+      if (btn.dataset.acao === 'voltar') voltarAoSistema();
+      else if (btn.dataset.acao === 'imprimir') window.print();
+    });
+
+    // Botão "voltar" do Android / gesto de voltar fecha o documento em vez de sair do sistema
+    window.addEventListener('popstate', () => {
+      if (estadoHistoricoAtivo) {
+        estadoHistoricoAtivo = false;
+        fecharVisualizacao();
+      }
+    });
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && overlayEl && !overlayEl.classList.contains('hidden')) voltarAoSistema();
+    });
+
+    return overlayEl;
+  }
+
+  function abrirVisualizacao(tipo, conteudo, htmlCorpo) {
+    const ov = garantirOverlay();
+    ov.querySelector('.doc-print-root').innerHTML = htmlCorpo;
+    ov.querySelector('.doc-print-root').classList.toggle('doc-especial', tipo === 'receita_especial');
+
+    const nomesTipo = {
+      atestado: 'Atestado',
+      declaracao: 'Declaração',
+      receita_comum: 'Receita',
+      receita_especial: 'Receita Controle Especial'
+    };
+    const nomeArquivo = `${nomesTipo[tipo] || 'Documento'} - ${conteudo.paciente?.nome || ''} - ${fmtDataBR(conteudo.data).replace(/\//g, '-')}`;
+    ov.querySelector('.doc-preview-nome').textContent = nomeArquivo;
+
+    // Orientação da página só enquanto o documento estiver aberto
+    let pageStyle = document.getElementById('docPreviewPageStyle');
+    if (!pageStyle) {
+      pageStyle = document.createElement('style');
+      pageStyle.id = 'docPreviewPageStyle';
+      document.head.appendChild(pageStyle);
+    }
+    pageStyle.textContent =
+      tipo === 'receita_especial'
+        ? '@page { size: A4 landscape; margin: 8mm; }'
+        : '@page { size: A4 portrait; margin: 12mm; }';
+
+    // O título da página vira o nome sugerido do PDF
+    if (ov.classList.contains('hidden')) tituloOriginal = document.title;
+    document.title = nomeArquivo;
+
+    ov.classList.remove('hidden');
+    document.body.classList.add('doc-preview-aberto');
+    ov.querySelector('.doc-preview-scroll').scrollTop = 0;
+
+    if (!estadoHistoricoAtivo) {
+      try {
+        history.pushState({ dopinDocPreview: true }, '');
+        estadoHistoricoAtivo = true;
+      } catch {
+        estadoHistoricoAtivo = false;
+      }
+    }
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+  }
+
+  function voltarAoSistema() {
+    if (estadoHistoricoAtivo) {
+      history.back(); // dispara popstate → fecharVisualizacao()
+    } else {
+      fecharVisualizacao();
+    }
+  }
+
+  function fecharVisualizacao() {
+    if (!overlayEl) return;
+    overlayEl.classList.add('hidden');
+    overlayEl.querySelector('.doc-print-root').innerHTML = '';
+    document.body.classList.remove('doc-preview-aberto');
+    document.getElementById('docPreviewPageStyle')?.remove();
+    if (tituloOriginal) document.title = tituloOriginal;
   }
 
   window.DocumentosModule = {
@@ -674,6 +731,7 @@
     trocarAba,
     atualizarSelectMedicamentos,
     removerItemReceita,
-    reimprimir
+    reimprimir,
+    fecharVisualizacao
   };
 })();

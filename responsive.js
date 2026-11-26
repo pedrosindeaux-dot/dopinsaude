@@ -18,7 +18,9 @@
         const span = Number(td.getAttribute('colspan') || 1);
         const ehMensagemVazia = celulas.length === 1 && span > 1;
         td.classList.toggle('td-vazio', ehMensagemVazia);
-        const rotulo = ehMensagemVazia ? '' : titulos[coluna] || '';
+        // data-rotulo permite que uma célula (ex.: rodapé de totais) defina o próprio rótulo
+        const rotuloFixo = td.dataset.rotulo;
+        const rotulo = ehMensagemVazia ? '' : rotuloFixo !== undefined ? rotuloFixo : titulos[coluna] || '';
         if (td.dataset.label !== rotulo) td.dataset.label = rotulo;
         coluna += span;
       });

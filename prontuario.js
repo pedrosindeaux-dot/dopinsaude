@@ -111,6 +111,145 @@
     if (abrir) abrirProntuario(existente.id);
   }
 
+  // ==================== FILTROS DA LISTA DE PACIENTES ====================
+  // Cada filtro é independente; para criar um novo, adicione o campo na barra
+  // (index.html) e uma condição em pacientePassaFiltros().
+  const filtrosPac = { meses: null };
+
+  function isoMesesAtras(meses) {
+    const d = new Date();
+    const dia = d.getDate();
+    d.setDate(1);
+    d.setMonth(d.getMonth() - meses);
+    const ultimo = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+    d.setDate(Math.min(dia, ultimo));
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }
+
+  const saldoDevedor = (p) =>
+    p.total_pago === undefined ? 0 : Math.max(0, (Number(p.total_orcado) || 0) - (Number(p.total_pago) || 0));
+
+  function lerFiltrosPac() {
+    const val = (id) => document.getElementById(id);
+    return {
+      termo: (val('buscaPaciente')?.value || '').trim().toLowerCase(),
+      especialidade: val('filtroEspecialidadePac')?.value || '',
+      meses: filtrosPac.meses,
+      incluirNunca: Boolean(val('filtroIncluirNunca')?.checked),
+      orcamentoAberto: Boolean(val('filtroOrcamentoAberto')?.checked),
+      pendenciaFinanceira: Boolean(val('filtroPendenciaFinanceira')?.checked),
+      semRetorno: Boolean(val('filtroSemRetorno')?.checked),
+      cadastroPendente: Boolean(val('filtroCadastroPendente')?.checked),
+      exclusaoPendente: Boolean(val('filtroExclusaoPendente')?.checked)
+    };
+  }
+
+  function pacientePassaFiltros(p, f, gestao) {
+    if (f.termo) {
+      const dig = f.termo.replace(/\D/g, '');
+      const ok =
+        String(p.nome || '').toLowerCase().includes(f.termo) ||
+        String(p.cpf || '').toLowerCase().includes(f.termo) ||
+        (dig.length >= 3 && normalizarCPF(p.cpf).includes(dig)) ||
+        (gestao && dig.length >= 4 && String(p.telefone || '').replace(/\D/g, '').includes(dig));
+      if (!ok) return false;
+    }
+    if (f.especialidade && p.ultima_especialidade !== f.especialidade) return false;
+    if (f.meses) {
+      const limite = isoMesesAtras(f.meses);
+      const ok = p.ultima_consulta ? p.ultima_consulta <= limite : f.incluirNunca;
+      if (!ok) return false;
+    }
+    if (f.orcamentoAberto && !(Number(p.procedimentos_abertos) > 0)) return false;
+    if (f.semRetorno && p.proximo_agendamento) return false;
+    if (gestao) {
+      if (f.pendenciaFinanceira && !(saldoDevedor(p) > 0.009)) return false;
+      if (f.cadastroPendente && !isCadastroPendente(p)) return false;
+      if (f.exclusaoPendente && p.status_exclusao !== 'pendente') return false;
+    }
+    return true;
+  }
+
+  function atualizarChipsMeses() {
+    const custom = document.getElementById('filtroMesesCustom');
+    document.querySelectorAll('#filtrosPacientes .filtro-chip').forEach((c) => {
+      const m = c.dataset.meses ? Number(c.dataset.meses) : null;
+      c.classList.toggle('ativo', m === filtrosPac.meses && !(custom && custom.value && m !== Number(custom.value)));
+    });
+    const nunca = document.getElementById('filtroIncluirNunca');
+    if (nunca) {
+      nunca.disabled = !filtrosPac.meses;
+      nunca.closest('label')?.classList.toggle('desativado', !filtrosPac.meses);
+    }
+  }
+
+  function configurarFiltrosPacientes() {
+    const raiz = document.getElementById('filtrosPacientes');
+    if (!raiz) return;
+    raiz.addEventListener('click', (e) => {
+      const chip = e.target.closest('.filtro-chip');
+      if (!chip) return;
+      filtrosPac.meses = chip.dataset.meses ? Number(chip.dataset.meses) : null;
+      const custom = document.getElementById('filtroMesesCustom');
+      if (custom) custom.value = '';
+      atualizarChipsMeses();
+      renderizarListaPacientes();
+    });
+    document.getElementById('filtroMesesCustom')?.addEventListener('input', (e) => {
+      const n = Math.floor(Number(e.target.value));
+      filtrosPac.meses = n >= 1 ? Math.min(n, 240) : null;
+      atualizarChipsMeses();
+      renderizarListaPacientes();
+    });
+    raiz.querySelectorAll('input[type="checkbox"], select').forEach((x) => x.addEventListener('change', renderizarListaPacientes));
+    document.getElementById('btnLimparFiltrosPac')?.addEventListener('click', () => {
+      raiz.querySelectorAll('input[type="checkbox"]').forEach((c) => (c.checked = false));
+      raiz.querySelectorAll('input[type="search"], input[type="number"]').forEach((i) => (i.value = ''));
+      const esp = document.getElementById('filtroEspecialidadePac');
+      if (esp) esp.value = '';
+      filtrosPac.meses = null;
+      atualizarChipsMeses();
+      renderizarListaPacientes();
+    });
+    atualizarChipsMeses();
+  }
+
+  // ==================== WHATSAPP (somente Recepção e Administração) ====================
+  // Telefone brasileiro → número internacional (55 + DDD + número)
+  function telefoneWhatsApp(tel) {
+    let d = String(tel || '').replace(/\D/g, '').replace(/^0+/, '');
+    if (d.length === 10 || d.length === 11) d = `55${d}`;
+    if (/^55\d{10,11}$/.test(d)) return d;
+    if (d.length >= 11 && d.length <= 15 && !d.startsWith('55')) return d; // número estrangeiro já com DDI
+    return null;
+  }
+
+  function abrirWhatsApp() {
+    if (!podeVerContato()) return;
+    const pac = getPacienteAtual();
+    const numero = telefoneWhatsApp(pac?.telefone);
+    if (!numero) {
+      alert('Telefone do paciente ausente ou inválido. Cadastre com DDD, ex.: (85) 99999-9999.');
+      return;
+    }
+    const celular = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) ||
+      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    // Computador: WhatsApp Web (já logado no navegador). Celular: abre o aplicativo.
+    const url = celular ? `https://wa.me/${numero}` : `https://web.whatsapp.com/send?phone=${numero}`;
+    window.open(url, '_blank', 'noopener');
+  }
+
+  function atualizarBotaoWhatsApp(pac) {
+    const btn = document.getElementById('btnWhatsappPront');
+    if (!btn) return;
+    const visivel = podeVerContato();
+    btn.classList.toggle('hidden', !visivel);
+    if (!visivel) return;
+    const ok = Boolean(telefoneWhatsApp(pac?.telefone));
+    btn.classList.toggle('sem-telefone', !ok);
+    btn.title = ok ? `Abrir conversa com ${pac.nome} no WhatsApp` : 'Paciente sem telefone válido cadastrado';
+  }
+
   function getPacienteAtual() {
     return (window.db?.pacientes || []).find((p) => p.id === pacienteAtualId) || null;
   }
@@ -118,7 +257,8 @@
   // ==================== INICIALIZAÇÃO DE EVENTOS ====================
   function init() {
     document.querySelectorAll('.input-cpf').forEach(aplicarMascaraCPF);
-    document.getElementById('filtroCadastroPendente')?.addEventListener('change', renderizarListaPacientes);
+    configurarFiltrosPacientes();
+    document.getElementById('btnWhatsappPront')?.addEventListener('click', abrirWhatsApp);
 
     // Cadastro / Edição de Paciente + Anamnese
     document.getElementById('formPaciente')?.addEventListener('submit', async (e) => {
@@ -426,29 +566,37 @@
     if (cardCad) cardCad.classList.toggle('hidden', isProf && !document.getElementById('pacEditId').value);
 
     aplicarPermissoesFormPaciente();
-    const termo = (document.getElementById('buscaPaciente')?.value || '').trim().toLowerCase();
-    const termoCpf = normalizarCPF(termo);
-
-    // Filtro "Só cadastros pendentes" (Administração e Recepção)
+    const gestao = !isProf;
     const todos = window.db?.pacientes || [];
-    const totalPendentes = todos.filter(isCadastroPendente).length;
-    const wrapFiltro = document.getElementById('filtroPendentesWrap');
-    const chkPend = document.getElementById('filtroCadastroPendente');
-    if (wrapFiltro) wrapFiltro.classList.toggle('hidden', isProf);
-    const contador = document.getElementById('contadorPendentes');
-    if (contador) contador.textContent = totalPendentes;
-    const soPendentes = !isProf && Boolean(chkPend?.checked);
 
-    const filtrados = todos.filter(
-      (p) =>
-        (!soPendentes || isCadastroPendente(p)) &&
-        (String(p.nome || '').toLowerCase().includes(termo) ||
-          String(p.cpf || '').toLowerCase().includes(termo) ||
-          (termoCpf.length >= 3 && normalizarCPF(p.cpf).includes(termoCpf)))
-    );
+    // Filtros que só a gestão (Administração/Recepção) usa
+    document.querySelectorAll('#filtrosPacientes .filtro-so-gestao').forEach((el) => el.classList.toggle('hidden', !gestao));
+    const contador = document.getElementById('contadorPendentes');
+    if (contador) contador.textContent = todos.filter(isCadastroPendente).length;
+    const busca = document.getElementById('buscaPaciente');
+    if (busca) busca.placeholder = gestao ? 'Buscar por nome, CPF ou telefone...' : 'Buscar por nome ou CPF...';
+
+    // Especialidades: as configuradas + as que aparecem no histórico
+    const selEsp = document.getElementById('filtroEspecialidadePac');
+    if (selEsp) {
+      const atual = selEsp.value;
+      const nomes = new Set([
+        ...(window.db?.config?.especialidades || []).map((e) => e.nome),
+        ...todos.map((p) => p.ultima_especialidade).filter(Boolean)
+      ]);
+      selEsp.innerHTML =
+        '<option value="">Todas as especialidades</option>' +
+        [...nomes].sort((x, y) => x.localeCompare(y, 'pt-BR')).map((n) => `<option value="${window.escapeHTML(n)}">${window.escapeHTML(n)}</option>`).join('');
+      selEsp.value = nomes.has(atual) ? atual : '';
+    }
+
+    const f = lerFiltrosPac();
+    const filtrados = todos.filter((p) => pacientePassaFiltros(p, f, gestao));
+    const cont = document.getElementById('contadorPacientesFiltro');
+    if (cont) cont.textContent = filtrados.length === todos.length ? `${todos.length} paciente(s)` : `${filtrados.length} de ${todos.length} paciente(s)`;
 
     if (filtrados.length === 0) {
-      ul.innerHTML = '<li><span class="hint">Nenhum paciente encontrado.</span></li>';
+      ul.innerHTML = '<li><span class="hint">Nenhum paciente encontrado com estes filtros.</span></li>';
       return;
     }
 
@@ -461,6 +609,17 @@
         ]
           .filter(Boolean)
           .join(' • ');
+        const indicadores = [
+          p.ultima_consulta !== undefined
+            ? (p.ultima_consulta ? `Última consulta: ${fmtDataBR(p.ultima_consulta)}` : 'Sem consulta registrada')
+            : '',
+          p.proximo_agendamento ? `Retorno: ${fmtDataBR(p.proximo_agendamento.slice(0, 10))} ${p.proximo_agendamento.slice(11, 16)}` : '',
+          p.ultima_especialidade ? `Últ. especialidade: ${window.escapeHTML(p.ultima_especialidade)}` : ''
+        ].filter(Boolean).join(' • ');
+        const tagsExtras = [
+          Number(p.procedimentos_abertos) > 0 ? '<span class="status-tag andamento" style="margin-left:6px;">Orçamento em aberto</span>' : '',
+          !isProf && saldoDevedor(p) > 0.009 ? `<span class="status-tag pendente" style="margin-left:6px;">Deve ${window.fmtBRL(saldoDevedor(p))}</span>` : ''
+        ].join('');
 
         const perfil = window.sessaoAtual?.perfil;
         const pendenteExcl = p.status_exclusao === 'pendente';
@@ -478,8 +637,9 @@
         return `
           <li>
             <div>
-              <strong>${window.escapeHTML(p.nome)}</strong>${badgeCadastro}${badgeExcl}
+              <strong>${window.escapeHTML(p.nome)}</strong>${badgeCadastro}${badgeExcl}${tagsExtras}
               ${detalhes ? `<br><small class="hint">${detalhes}</small>` : ''}
+              ${indicadores ? `<br><small class="hint paciente-indicadores">${indicadores}</small>` : ''}
             </div>
             <div class="item-actions">
               <button type="button" class="btn-edit-sm" onclick="ProntuarioModule.abrirProntuario('${window.escapeHTML(p.id)}')">
@@ -563,6 +723,7 @@
       podeVerContato() && pac.telefone ? `Tel: ${pac.telefone}` : ''
     ].filter(Boolean);
     document.getElementById('prontInfoPaciente').textContent = infoParts.join(' • ') || 'Sem informações complementares';
+    atualizarBotaoWhatsApp(pac);
 
     // Datas padrão dos formulários internos
     const pagData = document.getElementById('pagPacData');

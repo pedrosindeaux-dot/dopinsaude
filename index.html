@@ -180,6 +180,9 @@
       <button class="tab-btn active" data-tab="mapa" id="navTabMapa">
         <i data-lucide="clipboard-list"></i> Mapa Diário
       </button>
+      <button class="tab-btn hidden" data-tab="agenda" id="navTabAgenda">
+        <i data-lucide="calendar-days"></i> Agenda
+      </button>
       <button class="tab-btn" data-tab="pacientes" id="navTabPacientes">
         <i data-lucide="folder-heart"></i> Pacientes &amp; Prontuário
       </button>
@@ -224,7 +227,17 @@
             <span class="hint">Selecione um paciente cadastrado. Ortodontia (ORTO) é isenta de desconto de maquineta na comissão de execução.</span>
           </div>
 
+          <!-- Modo edição de um lançamento existente -->
+          <div id="mapaEdicaoBanner" class="mapa-edicao-banner hidden" role="status">
+            <div>
+              <strong id="mapaEdicaoTitulo">Editando lançamento</strong>
+              <small id="mapaEdicaoHint" class="hint"></small>
+            </div>
+            <button type="button" id="btnCancelarEdicaoMapa" class="btn btn-outline btn-sm">Cancelar edição</button>
+          </div>
+
           <form id="formMapa" class="grid-form">
+            <input type="hidden" id="mEditId" value="" />
             <!-- Seletor pesquisável de paciente cadastrado (Item 13) -->
             <div class="form-group paciente-picker-wrap">
               <label>Paciente Cadastrado (Nome ou CPF) *</label>
@@ -313,8 +326,8 @@
             </div>
 
             <div class="form-actions">
-              <button type="submit" class="btn btn-primary">
-                <i data-lucide="plus-circle"></i> Lançar no Mapa
+              <button type="submit" id="btnSubmitMapa" class="btn btn-primary">
+                <i data-lucide="plus-circle"></i> <span>Lançar no Mapa</span>
               </button>
             </div>
           </form>
@@ -324,14 +337,26 @@
           <div class="card-header">
             <h2>Lançamentos Aprovados do Dia</h2>
             <span class="hint hidden" id="hintMapaProfissional">Visualização somente leitura dos seus atendimentos lançados no dia.</span>
+            <label class="mapa-ordenar-mobile">
+              <span>Ordenar:</span>
+              <select id="ordenarMapaMobile">
+                <option value="">Padrão (lançamento)</option>
+                <option value="paciente:asc">Paciente (A–Z)</option>
+                <option value="paciente:desc">Paciente (Z–A)</option>
+                <option value="especialidade:asc">Especialidade (A–Z)</option>
+                <option value="especialidade:desc">Especialidade (Z–A)</option>
+                <option value="pagamento:asc">Pagamento (A–Z)</option>
+                <option value="pagamento:desc">Pagamento (Z–A)</option>
+              </select>
+            </label>
           </div>
           <div class="table-responsive">
-            <table id="tabelaMapa">
+            <table id="tabelaMapa" class="tabela-mapa">
               <thead>
                 <tr>
-                  <th>Paciente</th>
-                  <th>Procedimento / Esp.</th>
-                  <th>Pagamento</th>
+                  <th aria-sort="none" data-sort-col="paciente"><button type="button" class="th-sort" data-sort="paciente" title="Ordenar por paciente">Paciente</button></th>
+                  <th aria-sort="none" data-sort-col="especialidade"><button type="button" class="th-sort" data-sort="especialidade" title="Ordenar pela especialidade">Procedimento / Esp.</button></th>
+                  <th aria-sort="none" data-sort-col="pagamento"><button type="button" class="th-sort" data-sort="pagamento" title="Ordenar pela forma de pagamento">Pagamento</button></th>
                   <th>Pago (Bruto)</th>
                   <th>Valor Final</th>
                   <th>Vend. / Com. Venda</th>
@@ -345,6 +370,49 @@
               <tbody></tbody>
               <tfoot id="tabelaMapaFoot"></tfoot>
             </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ==================== ABA AGENDA ==================== -->
+      <section id="tab-agenda" class="tab-content">
+        <div class="agenda-topo">
+          <h2 class="agenda-titulo">AGENDA</h2>
+          <button type="button" id="btnNovoAgendamento" class="btn btn-agenda">
+            <span class="btn-agenda-mais" aria-hidden="true">+</span> NOVO AGENDAMENTO
+          </button>
+          <div class="agenda-dia-nav">
+            <button type="button" id="agDiaAnterior" class="ag-nav-btn" aria-label="Dia anterior">‹</button>
+            <strong id="agDataTitulo"></strong>
+            <button type="button" id="agDiaProximo" class="ag-nav-btn" aria-label="Próximo dia">›</button>
+            <button type="button" id="agHoje" class="btn btn-outline btn-sm">Hoje</button>
+          </div>
+        </div>
+
+        <div class="agenda-layout">
+          <aside class="agenda-lateral">
+            <div class="agenda-box">
+              <div class="mini-cal-head">
+                <button type="button" id="agMesAnterior" class="ag-nav-btn" aria-label="Mês anterior">‹</button>
+                <span id="agMesTitulo"></span>
+                <button type="button" id="agMesProximo" class="ag-nav-btn" aria-label="Próximo mês">›</button>
+              </div>
+              <div id="agMiniCal" class="mini-cal-grid" role="grid" aria-label="Calendário"></div>
+            </div>
+
+            <div class="agenda-box" id="agFiltroProfBox">
+              <h4 class="agenda-box-titulo">VISUALIZAR PROFISSIONAL</h4>
+              <div id="agFiltroProf" class="ag-filtro-lista"></div>
+            </div>
+
+            <div class="agenda-box agenda-box-legenda">
+              <h4 class="agenda-box-titulo">ESPECIALIDADES</h4>
+              <div id="agLegenda" class="ag-legenda"></div>
+            </div>
+          </aside>
+
+          <div class="agenda-principal">
+            <div id="agGrade" class="agenda-grade-wrap"></div>
           </div>
         </div>
       </section>
@@ -429,14 +497,61 @@
           <div class="card">
             <div class="card-header">
               <h3><i data-lucide="users"></i> Pacientes Cadastrados</h3>
-              <div class="header-inline">
-                <label id="filtroPendentesWrap" class="remember-row hidden" style="margin:0;">
-                  <input type="checkbox" id="filtroCadastroPendente" />
-                  <span>Só cadastros pendentes (<strong id="contadorPendentes">0</strong>)</span>
+              <span id="contadorPacientesFiltro" class="hint"></span>
+            </div>
+
+            <!-- Barra de filtros (extensível: cada filtro é um campo independente) -->
+            <div class="filtros-pacientes" id="filtrosPacientes">
+              <div class="filtro-linha">
+                <input type="search" id="buscaPaciente" class="filtro-busca" placeholder="Buscar por nome, CPF ou telefone..." />
+                <select id="filtroEspecialidadePac" title="Especialidade do último atendimento">
+                  <option value="">Todas as especialidades</option>
+                </select>
+                <button type="button" id="btnLimparFiltrosPac" class="btn btn-outline btn-sm">Limpar filtros</button>
+              </div>
+
+              <div class="filtro-linha">
+                <span class="filtro-rotulo">Última consulta há mais de:</span>
+                <div class="filtro-chips" role="group" aria-label="Meses desde a última consulta">
+                  <button type="button" class="filtro-chip ativo" data-meses="">Qualquer</button>
+                  <button type="button" class="filtro-chip" data-meses="3">3 meses</button>
+                  <button type="button" class="filtro-chip" data-meses="6">6 meses</button>
+                  <button type="button" class="filtro-chip" data-meses="12">12 meses</button>
+                </div>
+                <label class="filtro-meses-custom">
+                  <input type="number" id="filtroMesesCustom" min="1" max="240" inputmode="numeric" placeholder="Nº" />
+                  <span>meses</span>
                 </label>
-                <input type="text" id="buscaPaciente" placeholder="Buscar por nome ou CPF..." style="max-width: 260px;" />
+                <label class="filtro-check">
+                  <input type="checkbox" id="filtroIncluirNunca" />
+                  <span>Incluir quem nunca consultou</span>
+                </label>
+              </div>
+
+              <div class="filtro-linha">
+                <label class="filtro-check">
+                  <input type="checkbox" id="filtroOrcamentoAberto" />
+                  <span>Orçamento em aberto</span>
+                </label>
+                <label class="filtro-check filtro-so-gestao">
+                  <input type="checkbox" id="filtroPendenciaFinanceira" />
+                  <span>Pendência financeira</span>
+                </label>
+                <label class="filtro-check">
+                  <input type="checkbox" id="filtroSemRetorno" />
+                  <span>Sem retorno agendado</span>
+                </label>
+                <label class="filtro-check filtro-so-gestao" id="filtroPendentesWrap">
+                  <input type="checkbox" id="filtroCadastroPendente" />
+                  <span>Cadastro pendente (<strong id="contadorPendentes">0</strong>)</span>
+                </label>
+                <label class="filtro-check filtro-so-gestao">
+                  <input type="checkbox" id="filtroExclusaoPendente" />
+                  <span>Exclusão pendente</span>
+                </label>
               </div>
             </div>
+
             <ul id="listaPacientes" class="editable-list"></ul>
           </div>
         </div>
@@ -450,6 +565,10 @@
                 <span class="hint" id="prontInfoPaciente"></span>
               </div>
               <div class="header-inline">
+                <button type="button" id="btnWhatsappPront" class="btn btn-whatsapp btn-sm hidden" title="Abrir conversa no WhatsApp">
+                  <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="currentColor"><path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.75.46 3.45 1.32 4.95L2.05 22l5.25-1.38a9.9 9.9 0 0 0 4.74 1.21h.01c5.46 0 9.91-4.45 9.91-9.91A9.85 9.85 0 0 0 12.04 2Zm0 18.15h-.01a8.2 8.2 0 0 1-4.19-1.15l-.3-.18-3.12.82.83-3.04-.2-.31a8.23 8.23 0 0 1-1.26-4.38c0-4.54 3.7-8.24 8.25-8.24 2.2 0 4.27.86 5.83 2.42a8.18 8.18 0 0 1 2.41 5.83c0 4.54-3.7 8.23-8.24 8.23Zm4.52-6.16c-.25-.12-1.47-.72-1.69-.81-.23-.08-.39-.12-.56.13-.17.25-.64.81-.78.97-.14.17-.29.19-.54.06-.25-.12-1.05-.39-1.99-1.23-.74-.66-1.23-1.47-1.38-1.72-.14-.25-.01-.38.11-.51.11-.11.25-.29.37-.43.12-.15.17-.25.25-.42.08-.17.04-.31-.02-.43-.06-.12-.56-1.34-.76-1.84-.2-.48-.41-.42-.56-.43h-.48c-.17 0-.43.06-.66.31-.23.25-.86.85-.86 2.07 0 1.22.89 2.4 1.01 2.56.12.17 1.75 2.67 4.23 3.74.59.26 1.05.41 1.41.52.59.19 1.13.16 1.56.1.48-.07 1.47-.6 1.67-1.18.21-.58.21-1.07.14-1.18-.06-.1-.22-.16-.47-.28Z"/></svg>
+                  <span>Enviar no WhatsApp</span>
+                </button>
                 <button type="button" id="btnEditarCadastroPront" class="btn btn-outline btn-sm">
                   <i data-lucide="edit-3"></i> Editar Cadastro / Anamnese
                 </button>
@@ -1050,6 +1169,22 @@
             </table>
           </div>
 
+          <h3 class="demo-section-title">Edições de Lançamentos Solicitadas pela Recepção</h3>
+          <div class="table-responsive" style="margin-bottom:20px;">
+            <table>
+              <thead>
+                <tr>
+                  <th>Lançamento</th>
+                  <th>Alterações (antes → depois)</th>
+                  <th>Solicitado por</th>
+                  <th>Motivo</th>
+                  <th>Ação</th>
+                </tr>
+              </thead>
+              <tbody id="listaAprovEdicaoBody"></tbody>
+            </table>
+          </div>
+
           <h3 class="demo-section-title">Saídas Retroativas Pendentes</h3>
           <div class="table-responsive">
             <table>
@@ -1551,6 +1686,77 @@
     </div>
   </div>
 
+  <!-- Modal de Agendamento (Agenda) -->
+  <div id="modalAgendamento" class="modal-backdrop hidden no-print">
+    <div class="modal-box modal-agenda" role="dialog" aria-modal="true" aria-labelledby="agModalTitulo">
+      <div class="modal-agenda-head">
+        <h3 id="agModalTitulo">NOVO AGENDAMENTO</h3>
+        <button type="button" id="agModalFechar" class="modal-fechar" aria-label="Fechar">×</button>
+      </div>
+      <form id="formAgendamento" class="form-agenda" novalidate>
+        <input type="hidden" id="agId" value="" />
+        <input type="hidden" id="agPacienteId" value="" />
+
+        <div class="form-group paciente-picker-wrap" id="agPickerWrap">
+          <label for="agNome">NOME:</label>
+          <input type="text" id="agNome" placeholder="Digite aqui..." autocomplete="off" />
+          <div id="agNomeDropdown" class="paciente-picker-dropdown hidden"></div>
+          <small id="agNomeHint" class="hint">Busque um paciente cadastrado ou digite o nome de um paciente novo.</small>
+        </div>
+
+        <div class="form-group hidden" id="agTelefoneBox">
+          <label for="agTelefone">TELEFONE (paciente novo):</label>
+          <input type="text" id="agTelefone" inputmode="tel" placeholder="(85) 99999-9999" />
+        </div>
+
+        <div class="form-group">
+          <label for="agProfissional">PROFISSIONAL</label>
+          <select id="agProfissional"></select>
+        </div>
+
+        <div class="form-group">
+          <label for="agEspecialidade">ESPECIALIDADE</label>
+          <select id="agEspecialidade"></select>
+        </div>
+
+        <div class="ag-linha-dupla">
+          <div class="form-group">
+            <label for="agData">DATA</label>
+            <input type="date" id="agData" />
+          </div>
+          <div class="form-group">
+            <label for="agHora">HORÁRIO</label>
+            <select id="agHora"></select>
+          </div>
+        </div>
+
+        <div class="form-group hidden" id="agStatusBox">
+          <label for="agStatus">STATUS</label>
+          <select id="agStatus">
+            <option value="agendado">Agendado</option>
+            <option value="confirmado">Confirmado</option>
+            <option value="atendido">Atendido</option>
+            <option value="faltou">Faltou</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="agObservacao">OBSERVAÇÃO:</label>
+          <textarea id="agObservacao" rows="4" maxlength="1000" placeholder="Digite aqui..."></textarea>
+        </div>
+
+        <p id="agErro" class="error-text hidden"></p>
+
+        <div class="modal-actions ag-acoes">
+          <button type="button" id="agExcluir" class="btn-danger-sm hidden">Excluir agendamento</button>
+          <span class="ag-acoes-espaco"></span>
+          <button type="button" id="agCancelar" class="btn btn-texto">Cancelar</button>
+          <button type="submit" id="agSalvar" class="btn btn-agenda">Agendar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <!-- Modal de Utilização de Procedimento no Orçamento (Item 5) -->
   <div id="modalUtilizarProc" class="modal-backdrop hidden no-print">
     <div class="modal-box">
@@ -1587,6 +1793,7 @@
   <script src="pdf-documentos.js"></script>
   <script src="documentos.js"></script>
   <script src="prontuario.js"></script>
+  <script src="agenda.js"></script>
   <script src="script.js"></script>
   <script src="responsive.js"></script>
 </body>

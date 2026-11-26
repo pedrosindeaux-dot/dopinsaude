@@ -28,7 +28,8 @@ window.db = {
   saidas: [],
   pagamentosDentistas: {},
   pacientes: [],
-  aprovacoes: { atendimentos: [], saidas: [], pacientes: [] },
+  aprovacoes: { atendimentos: [], saidas: [], pacientes: [], edicoes: [] },
+  edicoesPendentes: new Set(), // ids de lançamentos com edição aguardando a Administração
   masterClinicas: []
 };
 
@@ -138,7 +139,8 @@ async function carregarDadosDaNuvem() {
       window.db.aprovacoes = {
         atendimentos: resAprov.atendimentos || [],
         saidas: resAprov.saidas || [],
-        pacientes: resAprov.pacientes || []
+        pacientes: resAprov.pacientes || [],
+        edicoes: resAprov.edicoes || []
       };
     }
 
@@ -170,6 +172,8 @@ async function carregarDadosDaNuvem() {
       })),
       categoriasSaida: (res.categoriasSaida || []).map((cat) => cat.nome)
     };
+
+    window.db.edicoesPendentes = new Set(res.edicoes_pendentes || []);
 
     window.db.atendimentos = (res.atendimentos || []).map((a) => ({
       id: a.id,
@@ -250,6 +254,9 @@ document.addEventListener('DOMContentLoaded', () => {
   configurarModalSenha();
   configurarSeletorPacienteMapa();
   configurarFormularios();
+  configurarOrdenacaoMapa();
+  document.getElementById('btnCancelarEdicaoMapa')?.addEventListener('click', sairModoEdicaoMapa);
+  if (window.AgendaModule) window.AgendaModule.init();
   configurarConexao();
   if (window.ProntuarioModule) window.ProntuarioModule.init();
   if (window.MedicamentosModule) window.MedicamentosModule.init();
@@ -593,6 +600,7 @@ async function iniciarSessao(dados, salvarNoStorage = false) {
   document.getElementById('usuarioLogadoInfo').textContent = `${dados.usuario} (${dados.perfil})`;
 
   const tabMapa = document.getElementById('navTabMapa');
+  const tabAgenda = document.getElementById('navTabAgenda');
   const tabPacientes = document.getElementById('navTabPacientes');
   const tabMedicamentos = document.getElementById('navTabMedicamentos');
   const tabSaidas = document.getElementById('navTabSaidas');
@@ -611,7 +619,7 @@ async function iniciarSessao(dados, salvarNoStorage = false) {
 
   // Fluxo exclusivo do SuperAdmin (Master)
   if (dados.perfil === 'SuperAdmin') {
-    [tabMapa, tabPacientes, tabMedicamentos, tabSaidas, tabCaixa, tabPagamentos, tabAprovacoes, tabGeral, tabConfig]
+    [tabMapa, tabAgenda, tabPacientes, tabMedicamentos, tabSaidas, tabCaixa, tabPagamentos, tabAprovacoes, tabGeral, tabConfig]
       .forEach((t) => t?.classList.add('hidden'));
     [tabMasterCriar, tabMasterAssin, tabMasterReset].forEach((t) => t?.classList.remove('hidden'));
 
@@ -625,6 +633,7 @@ async function iniciarSessao(dados, salvarNoStorage = false) {
 
   [tabMasterCriar, tabMasterAssin, tabMasterReset].forEach((t) => t?.classList.add('hidden'));
   tabPacientes?.classList.remove('hidden');
+  tabAgenda?.classList.remove('hidden'); // todos os perfis da clínica (Profissional vê só a própria agenda)
 
   if (dados.perfil === 'Profissional') {
     tabMapa.classList.remove('hidden');
@@ -681,6 +690,8 @@ async function iniciarSessao(dados, salvarNoStorage = false) {
 
 function encerrarSessao() {
   window.sessaoAtual = null;
+  window.AgendaModule?.limpar();
+  if (document.getElementById('mEditId')?.value) sairModoEdicaoMapa();
   window.clinicLogoDataUrl = null;
   abasDesbloqueadas = { geral: false, config: false };
   DopinAPI.limparToken();
@@ -739,6 +750,7 @@ function ativarAba(tabName) {
   document.querySelectorAll('.tab-btn').forEach((b) => b.classList.toggle('active', b.dataset.tab === tabName));
   document.querySelectorAll('.tab-content').forEach((s) => s.classList.toggle('active', s.id === `tab-${tabName}`));
   renderizarTudo();
+  if (tabName === 'agenda' && window.AgendaModule) window.AgendaModule.aoAtivar();
 }
 
 function configurarModalSenha() {
@@ -911,9 +923,11 @@ function configurarFormularios() {
       return;
     }
 
+    const editId = document.getElementById('mEditId').value;
     const dataAtiva = getDataAtiva();
     const justificativaRetroativa = document.getElementById('mJustificativaRetro')?.value.trim() || '';
-    if (isDataRetroativa(dataAtiva) && !justificativaRetroativa) {
+    // Na edição a data do lançamento não muda, então a regra de retroativo não se aplica
+    if (!editId && isDataRetroativa(dataAtiva) && !justificativaRetroativa) {
       alert('Informe a justificativa para lançamento em data retroativa.');
       return;
     }
@@ -934,6 +948,17 @@ function configurarFormularios() {
         alert(`Erro ao criar cadastro provisório do paciente: ${err.message}`);
         return;
       }
+    }
+
+    if (editId) {
+      await salvarEdicaoAtendimento(editId, {
+        pacienteId,
+        procedimento: document.getElementById('mProcedimento').value.trim(),
+        dentistaVendaId: dentVenda,
+        dentistaExecId: dentExec,
+        ...calcularValoresMapa()
+      });
+      return;
     }
 
     const valores = calcularValoresMapa();
@@ -961,7 +986,16 @@ function configurarFormularios() {
         alert('Lançamento retroativo enviado para APROVAÇÃO ADMINISTRATIVA. Ele entrará nos cálculos somente após aprovado.');
         await carregarDadosDaNuvem();
       } else {
-        window.db.atendimentos.unshift({ id: res.id, ...registroAtendimento });
+        // Valores oficiais calculados pelo servidor (taxas e percentuais do banco)
+        window.db.atendimentos.unshift({
+          id: res.id,
+          ...registroAtendimento,
+          valorFinal: Number(res.valorFinal ?? registroAtendimento.valorFinal),
+          comissaoVenda: Number(res.comissaoVenda ?? registroAtendimento.comissaoVenda),
+          valorExecLiquido: Number(res.valorExecLiquido ?? registroAtendimento.valorExecLiquido),
+          comissaoExec: Number(res.comissaoExec ?? registroAtendimento.comissaoExec),
+          comissaoTotal: Number(res.comissaoTotal ?? registroAtendimento.comissaoTotal)
+        });
         renderizarTudo();
       }
     } catch (err) {
@@ -1186,6 +1220,11 @@ function renderizarMapa() {
   const corpoTabela = document.querySelector('#tabelaMapa tbody');
   if (!corpoTabela) return;
 
+  ordenarRegistrosMapa(registrosDia);
+  atualizarIndicadoresOrdenacao();
+  const podeEditar = ['Administração', 'Recepção'].includes(window.sessaoAtual?.perfil);
+  const editandoId = document.getElementById('mEditId')?.value || '';
+
   // Comissão que pertence a quem está vendo: o profissional vê só a própria parte
   // (venda e/ou execução); a administração/recepção vê a comissão total do atendimento.
   // Usa os mesmos campos gravados (comissaoVenda / comissaoExec) do fechamento e repasse.
@@ -1201,12 +1240,17 @@ function renderizarMapa() {
     .map((atend) => {
       const comissaoLinha = comissaoDaLinha(atend);
       somaComissoes += comissaoLinha;
+      const idSeguro = window.escapeHTML(atend.id);
+      const edicaoPendente = window.db.edicoesPendentes?.has(atend.id);
       const colunaAcao = modoLeitura
         ? ''
-        : `<td><button type="button" class="btn-danger-sm" onclick="excluirAtendimento('${window.escapeHTML(atend.id)}')">Excluir</button></td>`;
+        : `<td class="col-acoes"><div class="acoes-mapa">
+            ${podeEditar ? `<button type="button" class="btn-edit-sm" onclick="editarAtendimento('${idSeguro}')" ${edicaoPendente && window.sessaoAtual?.perfil === 'Recepção' ? 'disabled title="Já existe uma edição aguardando aprovação"' : ''}>Editar</button>` : ''}
+            <button type="button" class="btn-danger-sm" onclick="excluirAtendimento('${idSeguro}')">Excluir</button>
+          </div></td>`;
       return `
-      <tr>
-        <td><strong>${window.escapeHTML(atend.paciente)}</strong>${!modoLeitura && window.PacienteUtils?.isCadastroPendente((window.db.pacientes || []).find((p) => p.id === atend.pacienteId)) ? '<br>' + window.PacienteUtils.tagPendente() : ''}</td>
+      <tr class="${editandoId === atend.id ? 'linha-editando' : ''}">
+        <td><strong>${window.escapeHTML(atend.paciente)}</strong>${edicaoPendente && !modoLeitura ? '<br><span class="status-tag pendente">Edição aguardando aprovação</span>' : ''}${!modoLeitura && window.PacienteUtils?.isCadastroPendente((window.db.pacientes || []).find((p) => p.id === atend.pacienteId)) ? '<br>' + window.PacienteUtils.tagPendente() : ''}</td>
         <td>${window.escapeHTML(atend.procedimento)}<br><small class="hint">${window.escapeHTML(atend.espNome)}</small></td>
         <td>${window.escapeHTML(atend.formaNome)}<br><small class="hint">Taxa: ${Number(atend.taxaAplicada) || 0}%</small></td>
         <td>${window.fmtBRL(atend.valorPago)}</td>
@@ -1239,11 +1283,165 @@ function renderizarMapa() {
   }
 }
 
+// ==================== MAPA: ORDENAÇÃO POR COLUNA ====================
+// Clique no cabeçalho alterna A–Z / Z–A. "Procedimento / Esp." ordena pela especialidade.
+const ordenacaoMapa = { coluna: '', direcao: 'asc' };
+const collatorPt = new Intl.Collator('pt-BR', { sensitivity: 'base', numeric: true });
+const CHAVES_ORDENACAO_MAPA = {
+  paciente: (a) => [a.paciente],
+  especialidade: (a) => [a.espNome, a.procedimento, a.paciente],
+  pagamento: (a) => [a.formaNome, a.paciente]
+};
+
+function ordenarRegistrosMapa(lista) {
+  const chave = CHAVES_ORDENACAO_MAPA[ordenacaoMapa.coluna];
+  if (!chave) return lista;
+  const fator = ordenacaoMapa.direcao === 'desc' ? -1 : 1;
+  return lista.sort((x, y) => {
+    const kx = chave(x), ky = chave(y);
+    for (let i = 0; i < kx.length; i++) {
+      const c = collatorPt.compare(String(kx[i] || ''), String(ky[i] || ''));
+      if (c) return c * fator;
+    }
+    return 0;
+  });
+}
+
+function atualizarIndicadoresOrdenacao() {
+  document.querySelectorAll('#tabelaMapa th[data-sort-col]').forEach((th) => {
+    const ativa = th.dataset.sortCol === ordenacaoMapa.coluna;
+    th.classList.toggle('sort-asc', ativa && ordenacaoMapa.direcao === 'asc');
+    th.classList.toggle('sort-desc', ativa && ordenacaoMapa.direcao === 'desc');
+    th.setAttribute('aria-sort', ativa ? (ordenacaoMapa.direcao === 'asc' ? 'ascending' : 'descending') : 'none');
+  });
+  const sel = document.getElementById('ordenarMapaMobile');
+  if (sel) sel.value = ordenacaoMapa.coluna ? `${ordenacaoMapa.coluna}:${ordenacaoMapa.direcao}` : '';
+}
+
+function configurarOrdenacaoMapa() {
+  document.querySelectorAll('#tabelaMapa .th-sort').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const col = btn.dataset.sort;
+      if (ordenacaoMapa.coluna === col) {
+        ordenacaoMapa.direcao = ordenacaoMapa.direcao === 'asc' ? 'desc' : 'asc';
+      } else {
+        ordenacaoMapa.coluna = col;
+        ordenacaoMapa.direcao = 'asc';
+      }
+      renderizarMapa();
+    });
+  });
+  document.getElementById('ordenarMapaMobile')?.addEventListener('change', (e) => {
+    const [col, dir] = String(e.target.value || '').split(':');
+    ordenacaoMapa.coluna = col || '';
+    ordenacaoMapa.direcao = dir || 'asc';
+    renderizarMapa();
+  });
+}
+
+// ==================== MAPA: EDIÇÃO DE LANÇAMENTOS ====================
+// Administração: salva direto. Recepção: envia solicitação para a Administração aprovar.
+function definirSelect(sel, valor, rotuloSeAusente) {
+  if (!sel) return;
+  if (valor && ![...sel.options].some((o) => o.value === valor)) {
+    const opt = document.createElement('option');
+    opt.value = valor;
+    opt.textContent = `${rotuloSeAusente || valor} (removido)`;
+    sel.appendChild(opt);
+  }
+  sel.value = valor;
+}
+
+window.editarAtendimento = function (atendimentoId) {
+  const perfil = window.sessaoAtual?.perfil;
+  if (perfil !== 'Administração' && perfil !== 'Recepção') return;
+  const a = window.db.atendimentos.find((x) => x.id === atendimentoId);
+  if (!a) return;
+  if (perfil === 'Recepção' && window.db.edicoesPendentes?.has(a.id)) {
+    alert('Já existe uma solicitação de edição deste lançamento aguardando a Administração.');
+    return;
+  }
+
+  window.resetarSeletorPacienteMapa?.();
+  document.getElementById('mEditId').value = a.id;
+  document.getElementById('mPacienteId').value = a.pacienteId || '';
+  document.getElementById('mPacienteBusca').value = a.paciente || '';
+  document.getElementById('mProcedimento').value = a.procedimento || '';
+  definirSelect(document.getElementById('mEspecialidade'), a.espNome);
+  definirSelect(document.getElementById('mFormaPagamento'), a.formaId, a.formaNome);
+  definirSelect(document.getElementById('mDentistaVenda'), a.dentistaVendaId);
+  definirSelect(document.getElementById('mDentistaExec'), a.dentistaExecId);
+  document.getElementById('mValorPago').value = Number(a.valorPago || 0);
+  const campoExec = document.getElementById('mValorExecBruto');
+  campoExec.value = Number(a.valorExecBruto ?? a.valorPago ?? 0);
+  campoExec.dataset.editadoManualmente = 'true';
+  document.getElementById('mValorLab').value = Number(a.valorLab || 0);
+
+  const isAdmin = perfil === 'Administração';
+  document.getElementById('mapaEdicaoTitulo').textContent =
+    `Editando lançamento de ${a.paciente} — ${a.data.split('-').reverse().join('/')}`;
+  document.getElementById('mapaEdicaoHint').textContent = isAdmin
+    ? 'As alterações são salvas imediatamente. A data do lançamento não é alterada.'
+    : 'Sua alteração será enviada para APROVAÇÃO da Administração e só valerá depois de aprovada. A data não é alterada.';
+  document.getElementById('mapaEdicaoBanner').classList.remove('hidden');
+  document.getElementById('boxRetroMapa')?.classList.add('hidden');
+  const inpRetro = document.getElementById('mJustificativaRetro');
+  if (inpRetro) inpRetro.required = false;
+  document.querySelector('#btnSubmitMapa span').textContent = isAdmin ? 'Salvar alterações' : 'Solicitar alteração';
+  document.getElementById('cardFormMapa').classList.add('modo-edicao');
+  atualizarPreviewMapa();
+  renderizarMapa();
+  document.getElementById('cardFormMapa').scrollIntoView({ behavior: 'smooth', block: 'start' });
+};
+
+function sairModoEdicaoMapa() {
+  const form = document.getElementById('formMapa');
+  form?.reset();
+  document.getElementById('mEditId').value = '';
+  document.getElementById('mPacienteId').value = '';
+  window.resetarSeletorPacienteMapa?.();
+  document.getElementById('mValorLab').value = '0';
+  delete document.getElementById('mValorExecBruto').dataset.editadoManualmente;
+  document.getElementById('mapaEdicaoBanner').classList.add('hidden');
+  document.getElementById('cardFormMapa').classList.remove('modo-edicao');
+  document.querySelector('#btnSubmitMapa span').textContent = 'Lançar no Mapa';
+  popularSelects(); // remove opções "(removido)" que possam ter sido adicionadas
+  atualizarAlertasRetroativos();
+  atualizarPreviewMapa();
+  renderizarMapa();
+}
+
+async function salvarEdicaoAtendimento(atendimentoId, payload) {
+  const isAdmin = window.sessaoAtual?.perfil === 'Administração';
+  if (!isAdmin) {
+    const motivo = prompt('Informe o motivo da alteração (será enviado para aprovação da Administração):');
+    if (!motivo || !motivo.trim()) return;
+    payload.motivo = motivo.trim();
+  }
+  const btn = document.getElementById('btnSubmitMapa');
+  btn.disabled = true;
+  try {
+    const res = await DopinAPI.atualizarAtendimento(atendimentoId, payload);
+    sairModoEdicaoMapa();
+    await carregarDadosDaNuvem();
+    alert(
+      res.modo === 'pendente'
+        ? 'Solicitação de alteração enviada. O lançamento só será alterado após aprovação da Administração.'
+        : 'Lançamento atualizado com sucesso.'
+    );
+  } catch (err) {
+    alert(`Erro ao editar lançamento: ${err.message}`);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 window.excluirAtendimento = async function (atendimentoId) {
   if (window.sessaoAtual?.perfil === 'Profissional') return;
   if (!confirm('Deseja excluir este atendimento da nuvem?')) return;
   try {
     await DopinAPI.excluirAtendimento(atendimentoId);
+    if (document.getElementById('mEditId')?.value === atendimentoId) sairModoEdicaoMapa();
     window.db.atendimentos = window.db.atendimentos.filter((item) => item.id !== atendimentoId);
     renderizarTudo();
   } catch (err) {
@@ -1292,7 +1490,41 @@ function renderizarAprovacoes() {
   const atendPend = window.db.aprovacoes?.atendimentos || [];
   const saidasPend = window.db.aprovacoes?.saidas || [];
   const pacPend = window.db.aprovacoes?.pacientes || [];
-  const total = atendPend.length + saidasPend.length + pacPend.length;
+  const edicoesPend = window.db.aprovacoes?.edicoes || [];
+  const total = atendPend.length + saidasPend.length + pacPend.length + edicoesPend.length;
+
+  const tbodyEdic = document.getElementById('listaAprovEdicaoBody');
+  if (tbodyEdic) {
+    tbodyEdic.innerHTML = edicoesPend.length
+      ? edicoesPend.map((ed) => {
+          let antes = {}, depois = {};
+          try { antes = JSON.parse(ed.dados_anteriores_json || '{}'); } catch { /* ignora */ }
+          try { depois = JSON.parse(ed.previa_json || '{}'); } catch { /* ignora */ }
+          const campos = [
+            ['Paciente', 'paciente_nome'], ['Procedimento', 'procedimento'], ['Especialidade', 'especialidade_nome'],
+            ['Pagamento', 'forma_pagamento_nome'], ['Valor pago', 'valor_pago', 'R$'], ['Vendedor', 'dentista_venda_id', 'dent'],
+            ['Executor', 'dentista_exec_id', 'dent'], ['Exec. bruto', 'valor_exec_bruto', 'R$'], ['Lab.', 'valor_lab', 'R$'],
+            ['Comissão total', 'comissao_total', 'R$']
+          ];
+          const fmt = (v, t) => (t === 'R$' ? window.fmtBRL(v) : t === 'dent' ? nomeDentista(v) : String(v ?? '-'));
+          const mudancas = campos
+            .filter(([, k, t]) => (t === 'R$' ? Math.abs(Number(antes[k] || 0) - Number(depois[k] || 0)) > 0.004 : String(antes[k] ?? '') !== String(depois[k] ?? '')))
+            .map(([rot, k, t]) => `<div><small class="hint">${rot}:</small> ${window.escapeHTML(fmt(antes[k], t))} → <strong>${window.escapeHTML(fmt(depois[k], t))}</strong></div>`)
+            .join('') || '<span class="hint">Sem diferença nos valores.</span>';
+          return `
+          <tr>
+            <td><strong>${window.escapeHTML(antes.paciente_nome || '-')}</strong><br><small class="hint">${window.escapeHTML(String(ed.atendimento_data || '').split('-').reverse().join('/'))}</small></td>
+            <td class="col-mudancas">${mudancas}</td>
+            <td>${window.escapeHTML(ed.solicitado_por_nome || '-')}<br><small class="hint">${window.escapeHTML(ed.criado_em || '')}</small></td>
+            <td>${window.escapeHTML(ed.motivo || '-')}</td>
+            <td class="item-actions">
+              <button type="button" class="btn-success-sm" onclick="decidirAprovacao('edicao','${window.escapeHTML(ed.id)}','aprovado')">Aprovar</button>
+              <button type="button" class="btn-danger-sm" onclick="decidirAprovacao('edicao','${window.escapeHTML(ed.id)}','rejeitado')">Rejeitar</button>
+            </td>
+          </tr>`;
+        }).join('')
+      : '<tr><td colspan="5">Nenhuma edição de lançamento aguardando aprovação.</td></tr>';
+  }
 
   const badge = document.getElementById('badgeAprovacoes');
   if (badge) {
@@ -1370,7 +1602,8 @@ function renderizarAprovacoes() {
 
 window.decidirAprovacao = async function (tipo, id, decisao) {
   const verbo = decisao === 'aprovado' ? 'aprovar' : 'rejeitar';
-  if (!confirm(`Deseja realmente ${verbo} este lançamento retroativo?`)) return;
+  const alvo = { atendimento: 'este lançamento retroativo', saida: 'esta saída retroativa', paciente: 'esta exclusão de paciente', edicao: 'esta edição de lançamento' }[tipo] || 'esta solicitação';
+  if (!confirm(`Deseja realmente ${verbo} ${alvo}?`)) return;
   try {
     await DopinAPI.decidirAprovacao(tipo, id, decisao);
     await carregarDadosDaNuvem();

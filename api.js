@@ -61,6 +61,10 @@ const DopinAPI = {
   // Atendimentos, Saídas e Aprovações Retroativas
   criarAtendimento(payload) { return this.request('/atendimentos', { method: 'POST', body: payload }); },
   excluirAtendimento(id) { return this.request(`/atendimentos/${encodeURIComponent(id)}`, { method: 'DELETE' }); },
+  // Admin: aplica direto | Recepção: cria solicitação (retorna { modo: 'pendente' })
+  atualizarAtendimento(id, payload) {
+    return this.request(`/atendimentos/${encodeURIComponent(id)}`, { method: 'PUT', body: payload });
+  },
   criarSaida(payload) { return this.request('/saidas', { method: 'POST', body: payload }); },
   excluirSaida(id) { return this.request(`/saidas/${encodeURIComponent(id)}`, { method: 'DELETE' }); },
   listarAprovacoes() { return this.request('/aprovacoes'); },
@@ -159,6 +163,16 @@ const DopinAPI = {
       method: 'DELETE'
     });
   },
+
+  // Agenda
+  listarAgendamentos(inicio, fim) {
+    return this.request(`/agendamentos?inicio=${encodeURIComponent(inicio)}&fim=${encodeURIComponent(fim)}`);
+  },
+  criarAgendamento(payload) { return this.request('/agendamentos', { method: 'POST', body: payload }); },
+  atualizarAgendamento(id, payload) {
+    return this.request(`/agendamentos/${encodeURIComponent(id)}`, { method: 'PUT', body: payload });
+  },
+  excluirAgendamento(id) { return this.request(`/agendamentos/${encodeURIComponent(id)}`, { method: 'DELETE' }); },
 
   // Banco de Medicamentos
   listarMedicamentos() { return this.request('/medicamentos'); },

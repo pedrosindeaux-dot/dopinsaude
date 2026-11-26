@@ -2732,3 +2732,17 @@ body.doc-preview-aberto {
   padding: 10px 12px;
   font-size: 0.86rem;
 }
+
+/* Geração de PDF no iPhone: força o layout de folha A4 mesmo com a tela estreita */
+.doc-pdf-render .page-sheet { padding: 32px !important; margin: 0 auto 0 !important; border: none !important; border-radius: 0 !important; }
+.doc-pdf-render .landscape-two-cols { grid-template-columns: 1fr 1fr !important; gap: 16px !important; }
+.doc-pdf-render .landscape-two-cols .page-sheet { padding: 20px !important; border: 1px solid #cbd5e1 !important; }
+.doc-pdf-render .doc-footer { flex-direction: row !important; align-items: flex-end !important; gap: 0 !important; margin-top: 52px !important; }
+.doc-pdf-render .landscape-two-cols .doc-footer { margin-top: 28px !important; }
+.doc-pdf-render .sig-box { min-width: 240px !important; }
+.doc-pdf-render .atestado-body { font-size: 1rem !important; margin: 28px 0 48px !important; text-align: justify !important; }
+.doc-pdf-render .doc-brand h2 { font-size: 1.25rem !important; }
+.doc-pdf-render .doc-title-bar h3 { font-size: 1.17rem !important; }
+.doc-pdf-render .landscape-two-cols .doc-brand h2 { font-size: 1.05rem !important; }
+.doc-pdf-render .landscape-two-cols .doc-title-bar h3 { font-size: 0.98rem !important; }
+.doc-preview-imprimir:disabled { opacity: 0.75; cursor: progress; }

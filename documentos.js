@@ -619,6 +619,126 @@
   let tituloOriginal = '';
   let estadoHistoricoAtivo = false;
 
+  // ---------- iPhone / iPad ----------
+  // No iOS, window.print() não funciona de forma confiável (principalmente com o
+  // sistema aberto pela Tela de Início, que ignora o comando). Lá o documento é
+  // convertido em um arquivo PDF real e entregue pela folha de Compartilhar do
+  // iOS, que já oferece Imprimir (AirPrint), Salvar em Arquivos, WhatsApp, e-mail…
+  const IS_IOS =
+    /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const HTML2PDF_URL = 'https://cdn.jsdelivr.net/npm/html2pdf.js@0.10.2/dist/html2pdf.bundle.min.js';
+  let html2pdfPromise = null;
+  let pdfAtual = null;      // { blob, nome } do documento aberto
+  let geracaoId = 0;        // descarta PDFs de documentos que já foram fechados
+
+  function carregarHtml2Pdf() {
+    if (window.html2pdf) return Promise.resolve(window.html2pdf);
+    if (!html2pdfPromise) {
+      html2pdfPromise = new Promise((resolve, reject) => {
+        const sc = document.createElement('script');
+        sc.src = HTML2PDF_URL;
+        sc.async = true;
+        sc.onload = () => (window.html2pdf ? resolve(window.html2pdf) : reject(new Error('Biblioteca de PDF indisponível.')));
+        sc.onerror = () => {
+          html2pdfPromise = null; // permite tentar de novo
+          sc.remove();
+          reject(new Error('Não foi possível carregar o gerador de PDF. Verifique a internet.'));
+        };
+        document.head.appendChild(sc);
+      });
+    }
+    return html2pdfPromise;
+  }
+
+  function atualizarBotaoImprimir(estado) {
+    if (!overlayEl) return;
+    const btn = overlayEl.querySelector('.doc-preview-imprimir');
+    const txt = btn.querySelector('span');
+    const textos = {
+      preparando: 'Preparando PDF…',
+      pronto: IS_IOS ? 'Compartilhar / Salvar PDF' : 'Imprimir / Salvar PDF',
+      erro: 'Tentar gerar PDF novamente'
+    };
+    txt.textContent = textos[estado] || textos.pronto;
+    btn.disabled = estado === 'preparando';
+    btn.dataset.estado = estado;
+  }
+
+  // Gera o PDF fora da tela, sempre no layout de "folha" (desktop), mesmo num celular estreito
+  async function gerarPdfIOS(tipo, nomeArquivo) {
+    const meuId = ++geracaoId;
+    pdfAtual = null;
+    atualizarBotaoImprimir('preparando');
+    let palco = null;
+    try {
+      const html2pdf = await carregarHtml2Pdf();
+      if (meuId !== geracaoId) return;
+
+      const paisagem = tipo === 'receita_especial';
+      const larguraPx = paisagem ? 1120 : 780;
+      palco = document.createElement('div');
+      palco.className = 'doc-print-root doc-pdf-render';
+      palco.style.cssText = `position:fixed; left:-12000px; top:0; width:${larguraPx}px; background:#fff;`;
+      palco.innerHTML = overlayEl.querySelector('.doc-print-root').innerHTML;
+      document.body.appendChild(palco);
+
+      const blob = await html2pdf()
+        .set({
+          margin: paisagem ? 8 : 12,
+          filename: `${nomeArquivo}.pdf`,
+          image: { type: 'jpeg', quality: 0.96 },
+          html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff', windowWidth: larguraPx + 40 },
+          jsPDF: { unit: 'mm', format: 'a4', orientation: paisagem ? 'landscape' : 'portrait' },
+          pagebreak: { mode: ['css', 'legacy'], avoid: '.page-sheet' }
+        })
+        .from(palco)
+        .outputPdf('blob');
+
+      if (meuId !== geracaoId) return;
+      pdfAtual = { blob, nome: `${nomeArquivo}.pdf` };
+      atualizarBotaoImprimir('pronto');
+    } catch (err) {
+      if (meuId !== geracaoId) return;
+      console.error('Erro ao gerar PDF (iOS):', err);
+      atualizarBotaoImprimir('erro');
+      const dica = overlayEl.querySelector('.doc-preview-dica');
+      if (dica) dica.textContent = `${err.message || 'Falha ao gerar o PDF.'} Toque no botão para tentar de novo.`;
+    } finally {
+      palco?.remove();
+    }
+  }
+
+  function baixarPdf(pdf) {
+    const url = URL.createObjectURL(pdf.blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = pdf.nome;
+    a.rel = 'noopener';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  }
+
+  // Precisa rodar direto no toque do usuário (exigência do iOS para compartilhar arquivos)
+  function compartilharPdfIOS() {
+    const btn = overlayEl.querySelector('.doc-preview-imprimir');
+    if (btn.dataset.estado === 'erro' || !pdfAtual) {
+      const { tipo, nome } = overlayEl.dataset;
+      gerarPdfIOS(tipo, nome);
+      return;
+    }
+    const arquivo = new File([pdfAtual.blob], pdfAtual.nome, { type: 'application/pdf' });
+    if (navigator.canShare && navigator.canShare({ files: [arquivo] })) {
+      navigator.share({ files: [arquivo], title: pdfAtual.nome }).catch((err) => {
+        if (err?.name !== 'AbortError') baixarPdf(pdfAtual); // AbortError = usuário fechou a folha
+      });
+    } else {
+      baixarPdf(pdfAtual);
+    }
+  }
+
   function garantirOverlay() {
     if (overlayEl) return overlayEl;
     overlayEl = document.createElement('div');
@@ -640,13 +760,20 @@
       <div class="doc-preview-scroll">
         <div class="doc-print-root"></div>
       </div>`;
+    if (IS_IOS) {
+      overlayEl.querySelector('.doc-preview-dica').innerHTML =
+        'No iPhone, toque em <strong>Compartilhar / Salvar PDF</strong> e escolha <strong>Imprimir</strong>, <strong>Salvar em Arquivos</strong> ou envie por WhatsApp/e-mail.';
+    }
     document.body.appendChild(overlayEl);
 
     overlayEl.addEventListener('click', (e) => {
       const btn = e.target.closest('[data-acao]');
       if (!btn) return;
       if (btn.dataset.acao === 'voltar') voltarAoSistema();
-      else if (btn.dataset.acao === 'imprimir') window.print();
+      else if (btn.dataset.acao === 'imprimir') {
+        if (IS_IOS) compartilharPdfIOS();
+        else window.print();
+      }
     });
 
     // Botão "voltar" do Android / gesto de voltar fecha o documento em vez de sair do sistema
@@ -694,6 +821,11 @@
     if (ov.classList.contains('hidden')) tituloOriginal = document.title;
     document.title = nomeArquivo;
 
+    ov.dataset.tipo = tipo;
+    ov.dataset.nome = nomeArquivo;
+    if (IS_IOS) gerarPdfIOS(tipo, nomeArquivo);
+    else atualizarBotaoImprimir('pronto');
+
     ov.classList.remove('hidden');
     document.body.classList.add('doc-preview-aberto');
     ov.querySelector('.doc-preview-scroll').scrollTop = 0;
@@ -721,6 +853,8 @@
     if (!overlayEl) return;
     overlayEl.classList.add('hidden');
     overlayEl.querySelector('.doc-print-root').innerHTML = '';
+    geracaoId++;        // cancela geração de PDF em andamento
+    pdfAtual = null;
     document.body.classList.remove('doc-preview-aberto');
     document.getElementById('docPreviewPageStyle')?.remove();
     if (tituloOriginal) document.title = tituloOriginal;

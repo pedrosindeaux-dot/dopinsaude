@@ -621,39 +621,19 @@
   let rolagemAoAbrir = null; // posição da página ao abrir o documento, restaurada ao voltar
 
   // ---------- iPhone / iPad ----------
-  // No iOS, window.print() não funciona de forma confiável (principalmente com o
-  // sistema aberto pela Tela de Início, que ignora o comando). Lá o documento é
-  // convertido em um arquivo PDF real e entregue pela folha de Compartilhar do
-  // iOS, que já oferece Imprimir (AirPrint), Salvar em Arquivos, WhatsApp, e-mail…
+  // No iOS, window.print() e a captura da tela por canvas não são confiáveis
+  // (PDF em branco / nada acontece). Lá o arquivo PDF é escrito diretamente pelo
+  // pdf-documentos.js (texto vetorial, sem bibliotecas) e entregue pela folha de
+  // Compartilhar do iOS: Imprimir (AirPrint), Salvar em Arquivos, WhatsApp, e-mail…
   const IS_IOS =
     /iPad|iPhone|iPod/.test(navigator.userAgent) ||
     (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-  const HTML2PDF_URL = 'https://cdn.jsdelivr.net/npm/html2pdf.js@0.10.2/dist/html2pdf.bundle.min.js';
   const DICA_IOS =
     'No iPhone, toque em <strong>Compartilhar / Salvar PDF</strong> e escolha <strong>Imprimir</strong>, <strong>Salvar em Arquivos</strong> ou envie por WhatsApp/e-mail. ' +
-    '<button type="button" class="doc-preview-link" data-acao="imprimir-nativo">PDF com problema? Imprimir pelo Safari</button>';
-  let html2pdfPromise = null;
+    '<button type="button" class="doc-preview-link" data-acao="abrir-pdf">Abrir o PDF</button>';
   let pdfAtual = null;      // { blob, nome } do documento aberto
   let geracaoId = 0;        // descarta PDFs de documentos que já foram fechados
-
-  function carregarHtml2Pdf() {
-    if (window.html2pdf) return Promise.resolve(window.html2pdf);
-    if (!html2pdfPromise) {
-      html2pdfPromise = new Promise((resolve, reject) => {
-        const sc = document.createElement('script');
-        sc.src = HTML2PDF_URL;
-        sc.async = true;
-        sc.onload = () => (window.html2pdf ? resolve(window.html2pdf) : reject(new Error('Biblioteca de PDF indisponível.')));
-        sc.onerror = () => {
-          html2pdfPromise = null; // permite tentar de novo
-          sc.remove();
-          reject(new Error('Não foi possível carregar o gerador de PDF. Verifique a internet.'));
-        };
-        document.head.appendChild(sc);
-      });
-    }
-    return html2pdfPromise;
-  }
+  let conteudoAtual = null; // { tipo, conteudo } exibido na camada
 
   function atualizarBotaoImprimir(estado) {
     if (!overlayEl) return;
@@ -669,54 +649,15 @@
     btn.dataset.estado = estado;
   }
 
-  // Gera o PDF fora da tela, sempre no layout de "folha" (desktop), mesmo num celular estreito
   async function gerarPdfIOS(tipo, nomeArquivo) {
     const meuId = ++geracaoId;
     pdfAtual = null;
     atualizarBotaoImprimir('preparando');
     const dicaEl = overlayEl.querySelector('.doc-preview-dica');
     if (dicaEl) dicaEl.innerHTML = DICA_IOS;
-    let palco = null;
     try {
-      const html2pdf = await carregarHtml2Pdf();
-      if (meuId !== geracaoId) return;
-
-      const paisagem = tipo === 'receita_especial';
-      const larguraPx = paisagem ? 1120 : 780;
-      palco = document.createElement('div');
-      palco.className = 'doc-print-root doc-pdf-render';
-      // O html2canvas "fotografa" a região onde o elemento está: ele PRECISA estar no
-      // canto superior esquerdo da página (fora da tela = PDF em branco). O usuário não
-      // o vê porque a camada do documento (z-index 2000) fica por cima.
-      palco.style.cssText = `position:absolute; left:0; top:0; z-index:1; width:${larguraPx}px; background:#fff; margin:0;`;
-      palco.innerHTML = overlayEl.querySelector('.doc-print-root').innerHTML;
-      document.body.appendChild(palco);
-
-      // Página rolada também desloca a captura: rola para o topo (a posição original
-      // é restaurada quando o usuário toca em "Voltar ao sistema")
-      window.scrollTo(0, 0);
-      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-
-      const blob = await html2pdf()
-        .set({
-          margin: paisagem ? 8 : 12,
-          filename: `${nomeArquivo}.pdf`,
-          image: { type: 'jpeg', quality: 0.96 },
-          html2canvas: {
-            scale: 2,
-            useCORS: true,
-            backgroundColor: '#ffffff',
-            scrollX: 0,
-            scrollY: 0,
-            windowWidth: larguraPx + 40,
-            windowHeight: Math.max(palco.scrollHeight + 40, window.innerHeight)
-          },
-          jsPDF: { unit: 'mm', format: 'a4', orientation: paisagem ? 'landscape' : 'portrait' },
-          pagebreak: { mode: ['css', 'legacy'], avoid: '.page-sheet' }
-        })
-        .from(palco)
-        .outputPdf('blob');
-
+      if (!window.PdfDocumentos) throw new Error('Gerador de PDF não carregado. Recarregue a página.');
+      const blob = await window.PdfDocumentos.gerar(tipo, conteudoAtual?.conteudo || {});
       if (meuId !== geracaoId) return;
       pdfAtual = { blob, nome: `${nomeArquivo}.pdf` };
       atualizarBotaoImprimir('pronto');
@@ -724,14 +665,22 @@
       if (meuId !== geracaoId) return;
       console.error('Erro ao gerar PDF (iOS):', err);
       atualizarBotaoImprimir('erro');
-      const dica = overlayEl.querySelector('.doc-preview-dica');
-      if (dica) {
-        dica.innerHTML = `${window.escapeHTML(err.message || 'Falha ao gerar o PDF.')} Toque no botão para tentar de novo. ` +
-          '<button type="button" class="doc-preview-link" data-acao="imprimir-nativo">Imprimir pelo Safari</button>';
-      }
-    } finally {
-      palco?.remove();
+      if (dicaEl) dicaEl.textContent = `${err.message || 'Falha ao gerar o PDF.'} Toque no botão para tentar de novo.`;
     }
+  }
+
+  // Abre o PDF no visualizador do iOS (que também tem Compartilhar → Imprimir)
+  function abrirPdf() {
+    if (!pdfAtual) return;
+    const url = URL.createObjectURL(pdfAtual.blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.target = '_blank';
+    a.rel = 'noopener';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 120000);
   }
 
   function baixarPdf(pdf) {
@@ -794,7 +743,7 @@
       const btn = e.target.closest('[data-acao]');
       if (!btn) return;
       if (btn.dataset.acao === 'voltar') voltarAoSistema();
-      else if (btn.dataset.acao === 'imprimir-nativo') window.print();
+      else if (btn.dataset.acao === 'abrir-pdf') abrirPdf();
       else if (btn.dataset.acao === 'imprimir') {
         if (IS_IOS) compartilharPdfIOS();
         else window.print();
@@ -851,6 +800,7 @@
 
     ov.dataset.tipo = tipo;
     ov.dataset.nome = nomeArquivo;
+    conteudoAtual = { tipo, conteudo };
     if (IS_IOS) gerarPdfIOS(tipo, nomeArquivo);
     else atualizarBotaoImprimir('pronto');
 

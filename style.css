@@ -2746,3 +2746,16 @@ body.doc-preview-aberto {
 .doc-pdf-render .landscape-two-cols .doc-brand h2 { font-size: 1.05rem !important; }
 .doc-pdf-render .landscape-two-cols .doc-title-bar h3 { font-size: 0.98rem !important; }
 .doc-preview-imprimir:disabled { opacity: 0.75; cursor: progress; }
+
+.doc-preview-link {
+  display: inline;
+  margin-left: 4px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--turquoise-600);
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+}

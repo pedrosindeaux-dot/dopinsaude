@@ -618,6 +618,7 @@
   let overlayEl = null;
   let tituloOriginal = '';
   let estadoHistoricoAtivo = false;
+  let rolagemAoAbrir = null; // posição da página ao abrir o documento, restaurada ao voltar
 
   // ---------- iPhone / iPad ----------
   // No iOS, window.print() não funciona de forma confiável (principalmente com o
@@ -628,6 +629,9 @@
     /iPad|iPhone|iPod/.test(navigator.userAgent) ||
     (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
   const HTML2PDF_URL = 'https://cdn.jsdelivr.net/npm/html2pdf.js@0.10.2/dist/html2pdf.bundle.min.js';
+  const DICA_IOS =
+    'No iPhone, toque em <strong>Compartilhar / Salvar PDF</strong> e escolha <strong>Imprimir</strong>, <strong>Salvar em Arquivos</strong> ou envie por WhatsApp/e-mail. ' +
+    '<button type="button" class="doc-preview-link" data-acao="imprimir-nativo">PDF com problema? Imprimir pelo Safari</button>';
   let html2pdfPromise = null;
   let pdfAtual = null;      // { blob, nome } do documento aberto
   let geracaoId = 0;        // descarta PDFs de documentos que já foram fechados
@@ -670,6 +674,8 @@
     const meuId = ++geracaoId;
     pdfAtual = null;
     atualizarBotaoImprimir('preparando');
+    const dicaEl = overlayEl.querySelector('.doc-preview-dica');
+    if (dicaEl) dicaEl.innerHTML = DICA_IOS;
     let palco = null;
     try {
       const html2pdf = await carregarHtml2Pdf();
@@ -679,16 +685,32 @@
       const larguraPx = paisagem ? 1120 : 780;
       palco = document.createElement('div');
       palco.className = 'doc-print-root doc-pdf-render';
-      palco.style.cssText = `position:fixed; left:-12000px; top:0; width:${larguraPx}px; background:#fff;`;
+      // O html2canvas "fotografa" a região onde o elemento está: ele PRECISA estar no
+      // canto superior esquerdo da página (fora da tela = PDF em branco). O usuário não
+      // o vê porque a camada do documento (z-index 2000) fica por cima.
+      palco.style.cssText = `position:absolute; left:0; top:0; z-index:1; width:${larguraPx}px; background:#fff; margin:0;`;
       palco.innerHTML = overlayEl.querySelector('.doc-print-root').innerHTML;
       document.body.appendChild(palco);
+
+      // Página rolada também desloca a captura: rola para o topo (a posição original
+      // é restaurada quando o usuário toca em "Voltar ao sistema")
+      window.scrollTo(0, 0);
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
 
       const blob = await html2pdf()
         .set({
           margin: paisagem ? 8 : 12,
           filename: `${nomeArquivo}.pdf`,
           image: { type: 'jpeg', quality: 0.96 },
-          html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff', windowWidth: larguraPx + 40 },
+          html2canvas: {
+            scale: 2,
+            useCORS: true,
+            backgroundColor: '#ffffff',
+            scrollX: 0,
+            scrollY: 0,
+            windowWidth: larguraPx + 40,
+            windowHeight: Math.max(palco.scrollHeight + 40, window.innerHeight)
+          },
           jsPDF: { unit: 'mm', format: 'a4', orientation: paisagem ? 'landscape' : 'portrait' },
           pagebreak: { mode: ['css', 'legacy'], avoid: '.page-sheet' }
         })
@@ -703,7 +725,10 @@
       console.error('Erro ao gerar PDF (iOS):', err);
       atualizarBotaoImprimir('erro');
       const dica = overlayEl.querySelector('.doc-preview-dica');
-      if (dica) dica.textContent = `${err.message || 'Falha ao gerar o PDF.'} Toque no botão para tentar de novo.`;
+      if (dica) {
+        dica.innerHTML = `${window.escapeHTML(err.message || 'Falha ao gerar o PDF.')} Toque no botão para tentar de novo. ` +
+          '<button type="button" class="doc-preview-link" data-acao="imprimir-nativo">Imprimir pelo Safari</button>';
+      }
     } finally {
       palco?.remove();
     }
@@ -761,8 +786,7 @@
         <div class="doc-print-root"></div>
       </div>`;
     if (IS_IOS) {
-      overlayEl.querySelector('.doc-preview-dica').innerHTML =
-        'No iPhone, toque em <strong>Compartilhar / Salvar PDF</strong> e escolha <strong>Imprimir</strong>, <strong>Salvar em Arquivos</strong> ou envie por WhatsApp/e-mail.';
+      overlayEl.querySelector('.doc-preview-dica').innerHTML = DICA_IOS;
     }
     document.body.appendChild(overlayEl);
 
@@ -770,6 +794,7 @@
       const btn = e.target.closest('[data-acao]');
       if (!btn) return;
       if (btn.dataset.acao === 'voltar') voltarAoSistema();
+      else if (btn.dataset.acao === 'imprimir-nativo') window.print();
       else if (btn.dataset.acao === 'imprimir') {
         if (IS_IOS) compartilharPdfIOS();
         else window.print();
@@ -818,7 +843,10 @@
         : '@page { size: A4 portrait; margin: 12mm; }';
 
     // O título da página vira o nome sugerido do PDF
-    if (ov.classList.contains('hidden')) tituloOriginal = document.title;
+    if (ov.classList.contains('hidden')) {
+      tituloOriginal = document.title;
+      rolagemAoAbrir = { x: window.scrollX, y: window.scrollY };
+    }
     document.title = nomeArquivo;
 
     ov.dataset.tipo = tipo;
@@ -858,6 +886,11 @@
     document.body.classList.remove('doc-preview-aberto');
     document.getElementById('docPreviewPageStyle')?.remove();
     if (tituloOriginal) document.title = tituloOriginal;
+    if (rolagemAoAbrir) {
+      const { x, y } = rolagemAoAbrir;
+      rolagemAoAbrir = null;
+      requestAnimationFrame(() => window.scrollTo(x, y));
+    }
   }
 
   window.DocumentosModule = {
